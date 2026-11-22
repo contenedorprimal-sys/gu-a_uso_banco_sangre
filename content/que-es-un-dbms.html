@@ -1,0 +1,79 @@
+<h2 id="archivo-no-es-base-de-datos">Un archivo no es una base de datos</h2>
+<p>Guardar datos en un CSV funciona hasta que dos personas escriben a la vez. En ese momento aparecen las preguntas que un DBMS resuelve: ¿quién escribió primero?, ¿qué pasa si el proceso muere a la mitad?, ¿cómo evito que una unidad se despache dos veces?, ¿quién puede leer los datos del donante?</p>
+<p>Un <strong>DBMS</strong> (Database Management System) es el software que administra el almacenamiento, el acceso concurrente, la integridad y la recuperación de los datos. MySQL es un DBMS relacional: organiza la información en tablas con filas y columnas, y usa SQL como lenguaje.</p>
+
+<div class="callout callout--note">
+  <p class="callout__label">La idea que importa</p>
+  <p>El archivo guarda bytes. El DBMS garantiza reglas: que una llave no se repita, que no exista una unidad sin donación, que una transacción confirmada sobreviva a un corte de luz.</p>
+</div>
+
+<h2 id="que-hace-un-dba">Qué hace un DBA</h2>
+<p>El <strong>DBA</strong> (Database Administrator) es la persona o equipo responsable de la disponibilidad, integridad, seguridad y desempeño de los datos. No es lo mismo que el administrador de datos: este define <em>qué</em> datos existen y cómo se modelan; el DBA los implementa, protege y mantiene en operación.</p>
+<p>El rol evolucionó: en los sesenta se hablaba de administrar archivos; con los DBMS relacionales de los setenta y ochenta apareció el DBA dedicado; hoy la nube automatiza tareas operativas y el perfil se mueve hacia arquitectura, afinación y confiabilidad (Database Reliability Engineer).</p>
+
+<h2 id="responsabilidades">Responsabilidades que se sienten en el proyecto</h2>
+<ul>
+  <li><strong>Instalar y configurar:</strong> versión, memoria, conexiones, ubicación de archivos y logs.</li>
+  <li><strong>Seguridad:</strong> usuarios, roles, mínimo privilegio y auditoría de operaciones sensibles.</li>
+  <li><strong>Respaldo y recuperación:</strong> definir RTO/RPO, ejecutar, verificar y probar la restauración.</li>
+  <li><strong>Monitoreo y afinación:</strong> CPU, memoria, E/S, consultas lentas, índices y capacidad futura.</li>
+  <li><strong>Gestión:</strong> documentar estándares, capacitar y coordinar con desarrollo e infraestructura.</li>
+</ul>
+
+<h2 id="tipos-de-dba">No todos los DBA hacen lo mismo</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tipo</th><th>Enfoque</th><th>Ejemplo</th></tr></thead>
+  <tbody>
+    <tr><td>System DBA</td><td>Infraestructura y disponibilidad</td><td>Servidores propios, parches, almacenamiento</td></tr>
+    <tr><td>Arquitecto</td><td>Diseño de datos a largo plazo</td><td>Esquema, normalización, particiones</td></tr>
+    <tr><td>Analista</td><td>Modelo lógico y requisitos</td><td>Diccionario de datos, entidad-relación</td></tr>
+    <tr><td>Application DBA</td><td>Una aplicación concreta</td><td>CRM, ERP, Salesforce, SAP</td></tr>
+    <tr><td>OLTP</td><td>Transacciones concurrentes</td><td>Banca, comercio electrónico</td></tr>
+    <tr><td>OLAP</td><td>Análisis histórico</td><td>Almacén de datos, reportes ejecutivos</td></tr>
+  </tbody>
+</table>
+</div>
+<p>En un equipo pequeño una sola persona cubre varios perfiles. En el proyecto del banco de sangre repartimos tres: System DBA (infraestructura y respaldos), Arquitecto (esquema y particiones) y DBA de seguridad (roles, auditoría y monitoreo).</p>
+
+<h2 id="habilidades">Habilidades técnicas y blandas</h2>
+<div class="grid-2">
+  <div class="mini-card">
+    <h3>Técnicas</h3>
+    <ul>
+      <li>SQL avanzado y ajuste de consultas</li>
+      <li>Conocimiento del motor y sus parámetros</li>
+      <li>Sistemas operativos y redes</li>
+      <li>Scripting y automatización</li>
+      <li>Modelado y normalización</li>
+    </ul>
+  </div>
+  <div class="mini-card">
+    <h3>Blandas</h3>
+    <ul>
+      <li>Comunicar decisiones a áreas no técnicas</li>
+      <li>Gestionar crisis bajo presión</li>
+      <li>Trabajar con desarrollo sin imponer</li>
+      <li>Pensamiento analítico y detalle</li>
+      <li>Documentar lo que se hizo y por qué</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>Antes de escribir una sola tabla, el equipo define qué significa «disponible», quién puede ver los datos del donante y cuánto tiempo se guarda la trazabilidad. Esas decisiones son de DBA y de negocio, no de sintaxis.</p>
+</div>
+
+<h2 id="comprobacion">Comprobación rápida</h2>
+<pre><code class="language-sql">-- ¿Qué motor y versión estoy usando?
+SELECT VERSION() AS version, @@version_comment AS motor;
+
+-- ¿Qué bases de datos existen?
+SHOW DATABASES;
+
+-- ¿Cuánto tiempo lleva encendido el servidor? (segundos)
+SELECT VARIABLE_VALUE AS uptime_seg
+FROM performance_schema.global_status
+WHERE VARIABLE_NAME = 'Uptime';</code></pre>
+<p>Si puedes explicar qué significa <code>Uptime</code> y para qué lo usaría un DBA, ya tienes el marco de toda la unidad 2.</p>

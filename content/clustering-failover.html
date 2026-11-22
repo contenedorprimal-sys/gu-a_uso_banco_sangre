@@ -1,0 +1,106 @@
+<h2 id="que-es">Varios servidores, un solo sistema</h2>
+<p>Un clúster es un conjunto de nodos que trabajan coordinados y, de cara a la aplicación, se comportan como un solo sistema. Es la aplicación concreta de la redundancia: si un nodo cae, los demás siguen atendiendo.</p>
+<p>No es un respaldo. Un respaldo protege los datos ante una pérdida; un clúster protege la disponibilidad del servicio en tiempo real.</p>
+
+<h2 id="activo-pasivo">Activo-pasivo frente a activo-activo</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Aspecto</th><th>Activo-pasivo</th><th>Activo-activo</th></tr></thead>
+  <tbody>
+    <tr><td>Nodos que atienden</td><td>Solo uno</td><td>Todos</td></tr>
+    <tr><td>Uso del hardware</td><td>Bajo (respaldo ocioso)</td><td>Alto</td></tr>
+    <tr><td>Complejidad</td><td>Baja</td><td>Alta</td></tr>
+    <tr><td>Conflictos de datos</td><td>Casi nulos</td><td>Requiere resolución</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Para una clínica con datos sensibles y un equipo de TI de tres personas, activo-pasivo suele ser la recomendación: se gana disponibilidad sin exigir un equipo grande para resolver conflictos. Un banco con 10,000 transacciones por segundo probablemente justifique activo-activo.</p>
+
+<h2 id="mysql-cluster">MySQL InnoDB Cluster</h2>
+<p>La solución oficial combina tres piezas:</p>
+<ul>
+  <li><strong>Group Replication:</strong> mantiene sincronizados los datos entre nodos.</li>
+  <li><strong>MySQL Router:</strong> dirige las conexiones al nodo correcto sin que la aplicación sepa cuál es el primario.</li>
+  <li><strong>MySQL Shell:</strong> administra el clúster (crear, revisar estado, recuperar).</li>
+</ul>
+
+<h2 id="failover">Failover: el evento, no la arquitectura</h2>
+<p>El clustering hace posible el failover; el failover es el evento concreto de conmutación cuando un nodo deja de responder. Tiene cuatro pasos:</p>
+<ol>
+  <li><strong>Detección:</strong> Group Replication nota que el PRIMARY dejó de responder o perdió conexión.</li>
+  <li><strong>Elección:</strong> los nodos restantes eligen un nuevo PRIMARY automáticamente.</li>
+  <li><strong>Redirección:</strong> MySQL Router mueve las conexiones de escritura al nuevo PRIMARY.</li>
+  <li><strong>Recuperación:</strong> el nodo caído, al volver, se resincroniza con el estado actual.</li>
+</ol>
+
+<h2 id="eleccion">Quién gana la elección</h2>
+<p>El criterio principal es el <strong>menor <code>server_uuid</code></strong> entre los nodos elegibles. La elección solo ocurre si hay quorum.</p>
+<pre><code class="language-sql">-- Tabla que simula el estado del clúster
+CREATE TABLE nodos_grupo (
+  nombre      VARCHAR(20) PRIMARY KEY,
+  server_uuid VARCHAR(36),
+  rol         VARCHAR(10),
+  estado      VARCHAR(10)
+);
+
+INSERT INTO nodos_grupo VALUES
+  ('Servidor A', '7a4e2f10-1111-11ee-aaaa-000000000101', 'PRIMARY',   'CAIDO'),
+  ('Servidor B', '3d88c250-2222-11ee-bbbb-000000000102', 'SECONDARY', 'ACTIVO'),
+  ('Servidor C', 'b015f630-3333-11ee-cccc-000000000103', 'SECONDARY', 'ACTIVO');
+
+-- Gana el menor server_uuid entre los ACTIVOS
+SELECT nombre, server_uuid
+FROM nodos_grupo
+WHERE estado = 'ACTIVO'
+ORDER BY server_uuid ASC
+LIMIT 1;</code></pre>
+<p>Resultado: <strong>Servidor B</strong>. Si B también falla, se actualiza su estado y se repite la consulta; queda C.</p>
+
+<h2 id="quorum">Quorum: la mayoría manda</h2>
+<p>La regla es <strong>nodos disponibles &gt; total / 2</strong>. Sin quorum, el clúster deja de aceptar escrituras para evitar <em>split-brain</em>: dos partes creyendo que son la verdadera.</p>
+<pre><code class="language-sql">SET @total_nodos = 7;
+SET @nodos_disponibles = 3;
+
+SELECT IF(@nodos_disponibles &gt; @total_nodos / 2,
+          'Hay Quorum',
+          'No Hay Quorum') AS resultado;
+-- 3 no es mayor que 3.5: NO hay quorum</code></pre>
+<p>Por eso los clústeres usan número impar de nodos (3, 5, 7). Con 3 nodos y 2 activos hay quorum; con 1 activo, no.</p>
+
+<h2 id="transaccion">La transacción a medias</h2>
+<p>Un cliente hace <code>UPDATE + DELETE</code> sin <code>COMMIT</code> y el PRIMARY falla. ¿Se completa en el nuevo PRIMARY?</p>
+<div class="callout callout--warning">
+  <p class="callout__label">No</p>
+  <p>Sin <code>COMMIT</code>, la transacción no se replicó por completo. No puede «continuar» en otro nodo. Al cliente le llega un error de conexión perdida y la aplicación debe reintentar la transacción desde cero.</p>
+</div>
+<p>Esto es atomicidad: todo o nada. El nuevo PRIMARY no conoce una transacción que nunca se confirmó.</p>
+
+<h2 id="rto">Qué determina el tiempo de recuperación</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Factor</th><th>Qué mide</th><th>Cómo reducirlo</th></tr></thead>
+  <tbody>
+    <tr><td>Detección</td><td>Tiempo en notar la caída</td><td>Ajustar timeouts de Group Replication</td></tr>
+    <tr><td>Elección</td><td>Tiempo en acordar el nuevo PRIMARY</td><td>Número impar y buena red</td></tr>
+    <tr><td>Reconexión</td><td>Tiempo de la app en reintentar</td><td>Lógica de retry en el código</td></tr>
+    <tr><td>Consistencia</td><td>Datos confirmados en el nuevo PRIMARY</td><td>Modo de confirmación adecuado</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="router">MySQL Router</h2>
+<p>La aplicación siempre se conecta a la misma dirección (el Router). El Router consulta la topología y redirige. Si una conexión se pierde durante el failover, la aplicación recibe un error y, al reintentar, llega al nuevo PRIMARY.</p>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>El banco de sangre no necesita cinco nueves, pero sí necesita que una cirugía no se detenga porque cayó el servidor. Un clúster de tres nodos con activo-pasivo, Router y ensayos trimestrales cubre el RTO de 30 minutos sin exigir un equipo de operaciones enorme.</p>
+</div>
+
+<h2 id="errores">Errores comunes</h2>
+<ul>
+  <li>Configurar un clúster y nunca probar el failover.</li>
+  <li>Usar número par de nodos: el quorum queda ambiguo.</li>
+  <li>Creer que el clúster reemplaza los respaldos.</li>
+  <li>No implementar reintentos en la aplicación.</li>
+  <li>Ignorar la latencia de red entre nodos geográficamente separados.</li>
+</ul>

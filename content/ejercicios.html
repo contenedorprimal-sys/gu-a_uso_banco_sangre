@@ -1,0 +1,654 @@
+<h2 id="como">Cómo usar este apéndice</h2>
+<p>Treinta preguntas sobre el Banco de Sangre, ordenadas de menor a mayor dificultad. Intenta resolverlas antes de mirar la solución. No importa si tu consulta se ve distinta: importa que responda la pregunta y que puedas explicar por qué.</p>
+<p>Requisito: haber ejecutado <code>00_esquema.sql</code> y <code>01_datos_demo.sql</code>. Las respuestas usan los datos de demostración; algunos totales cambiarán si agregas movimientos. Si ejecutaste el despacho de ejemplo del capítulo 12, vuelve a cargar <code>01_datos_demo.sql</code> antes del reto 10.</p>
+
+<h2 id="basicos">Básicos</h2>
+
+<h3 id="e1">1. Inventario disponible</h3>
+<p>Muestra código, componente y fecha de vencimiento de las unidades disponibles, ordenadas por vencimiento.</p>
+<pre><code class="language-sql">SELECT codigo_barras, tipo_componente, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+ORDER BY fecha_vencimiento;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>codigo_barras</th><th>tipo_componente</th><th>fecha_vencimiento</th></tr></thead>
+  <tbody><tr><td>GR-2026-0003</td><td>globulos_rojos</td><td>2026-09-28</td></tr><tr><td>ST-2026-0001</td><td>sangre_total</td><td>2026-11-25</td></tr><tr><td>PL-2026-0002</td><td>plasma</td><td>2027-08-17</td></tr><tr><td>CR-2026-0001</td><td>crioprecipitado</td><td>2027-09-01</td></tr><tr><td>PL-2026-0003</td><td>plasma</td><td>2027-09-25</td></tr><tr><td>PL-2026-0004</td><td>plasma</td><td>2027-10-14</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e2">2. Donantes O+ activos</h3>
+<p>Lista nombre, apellido paterno y correo de los donantes activos con tipo O positivo.</p>
+<pre><code class="language-sql">SELECT nombre, apellido_paterno, correo
+FROM donantes
+WHERE activo = 1
+  AND tipo_sangre = 'O'
+  AND factor_rh = '+';</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>nombre</th><th>apellido_paterno</th><th>correo</th></tr></thead>
+  <tbody><tr><td>Ana Sofía</td><td>Ramírez</td><td>ana.ramirez@example.com</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e3">3. Donaciones rechazadas</h3>
+<p>Muestra las donaciones rechazadas con su observación.</p>
+<pre><code class="language-sql">SELECT id_donacion, id_donante, fecha_donacion, observaciones
+FROM donaciones
+WHERE estado = 'rechazada';</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_donacion</th><th>id_donante</th><th>fecha_donacion</th><th>observaciones</th></tr></thead>
+  <tbody><tr><td>5</td><td>5</td><td>2026-09-12 09:10:00</td><td>Hemoglobina baja</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e4">4. Hospitales con convenio activo</h3>
+<p>Lista los hospitales activos cuyo correo termine en <code>example.com</code>.</p>
+<pre><code class="language-sql">SELECT id_hospital, nombre, correo
+FROM hospitales
+WHERE convenio = 'activo'
+  AND correo LIKE '%example.com'
+ORDER BY nombre;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_hospital</th><th>nombre</th><th>correo</th></tr></thead>
+  <tbody><tr><td>3</td><td>Clínica del Valle</td><td>compras@clinicavalle.example.com</td></tr><tr><td>2</td><td>Hospital Ángeles</td><td>transfusion@angeles.example.com</td></tr><tr><td>1</td><td>Hospital General de Zona</td><td>banco@hgz.example.com</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e5">5. Vencimientos de septiembre a noviembre</h3>
+<p>Unidades disponibles que vencen entre el 1 de septiembre y el 30 de noviembre de 2026.</p>
+<pre><code class="language-sql">SELECT codigo_barras, tipo_componente, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+  AND fecha_vencimiento &gt;= '2026-09-01'
+  AND fecha_vencimiento &lt; '2026-12-01'
+ORDER BY fecha_vencimiento;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>codigo_barras</th><th>tipo_componente</th><th>fecha_vencimiento</th></tr></thead>
+  <tbody><tr><td>GR-2026-0003</td><td>globulos_rojos</td><td>2026-09-28</td></tr><tr><td>ST-2026-0001</td><td>sangre_total</td><td>2026-11-25</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e6">6. Pruebas pendientes</h3>
+<p>Muestra las pruebas cuyo resultado todavía no está definido.</p>
+<pre><code class="language-sql">SELECT id_prueba, id_unidad, tipo_prueba, fecha_prueba, responsable
+FROM pruebas_laboratorio
+WHERE resultado = 'pendiente';</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_prueba</th><th>id_unidad</th><th>tipo_prueba</th><th>fecha_prueba</th><th>responsable</th></tr></thead>
+  <tbody><tr><td>11</td><td>7</td><td>chagas</td><td>2026-09-01 15:00:00</td><td>QFB Pedro Ruiz</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e7">7. Solicitudes urgentes pendientes</h3>
+<p>Lista las solicitudes urgentes que siguen pendientes, de la más antigua a la más reciente.</p>
+<pre><code class="language-sql">SELECT id_solicitud, id_hospital, fecha_solicitud, estado
+FROM solicitudes
+WHERE prioridad = 'urgente'
+  AND estado = 'pendiente'
+ORDER BY fecha_solicitud;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_solicitud</th><th>id_hospital</th><th>fecha_solicitud</th><th>estado</th></tr></thead>
+  <tbody><tr><td>5</td><td>2</td><td>2026-10-20 16:40:00</td><td>pendiente</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e8">8. Componentes distintos</h3>
+<p>¿Qué tipos de componente existen en el inventario?</p>
+<pre><code class="language-sql">SELECT DISTINCT tipo_componente
+FROM unidades_sangre
+ORDER BY tipo_componente;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>tipo_componente</th></tr></thead>
+  <tbody><tr><td>sangre_total</td></tr><tr><td>globulos_rojos</td></tr><tr><td>plasma</td></tr><tr><td>plaquetas</td></tr><tr><td>crioprecipitado</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h2 id="intermedios">Intermedios</h2>
+
+<h3 id="e9">9. Donaciones por donante, incluidos los que no han donado</h3>
+<p>Muestra cada donante y cuántas donaciones tiene, con cero cuando no tiene.</p>
+<pre><code class="language-sql">SELECT
+  d.id_donante,
+  CONCAT(d.nombre, ' ', d.apellido_paterno) AS donante,
+  COUNT(do.id_donacion) AS donaciones
+FROM donantes d
+LEFT JOIN donaciones do ON do.id_donante = d.id_donante
+GROUP BY d.id_donante, d.nombre, d.apellido_paterno
+ORDER BY donaciones DESC, d.id_donante;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_donante</th><th>donante</th><th>donaciones</th></tr></thead>
+  <tbody><tr><td>1</td><td>Ana Sofía Ramírez</td><td>1</td></tr><tr><td>2</td><td>Luis Fernando Cruz</td><td>1</td></tr><tr><td>3</td><td>María Elena Gómez</td><td>1</td></tr><tr><td>4</td><td>Jorge Hernández</td><td>1</td></tr><tr><td>5</td><td>Valeria Torres</td><td>1</td></tr><tr><td>6</td><td>Ricardo Aguilar</td><td>1</td></tr><tr><td>7</td><td>Daniela Flores</td><td>1</td></tr><tr><td>8</td><td>Héctor Medina</td><td>1</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e10">10. Unidades por componente y estado</h3>
+<p>Cuenta las unidades agrupadas por componente y estado.</p>
+<pre><code class="language-sql">SELECT tipo_componente, estado, COUNT(*) AS unidades
+FROM unidades_sangre
+GROUP BY tipo_componente, estado
+ORDER BY tipo_componente, estado;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>tipo_componente</th><th>estado</th><th>unidades</th></tr></thead>
+  <tbody><tr><td>sangre_total</td><td>disponible</td><td>1</td></tr><tr><td>globulos_rojos</td><td>disponible</td><td>1</td></tr><tr><td>globulos_rojos</td><td>reservada</td><td>1</td></tr><tr><td>globulos_rojos</td><td>despachada</td><td>3</td></tr><tr><td>globulos_rojos</td><td>vencida</td><td>1</td></tr><tr><td>plasma</td><td>disponible</td><td>3</td></tr><tr><td>plasma</td><td>despachada</td><td>1</td></tr><tr><td>plaquetas</td><td>despachada</td><td>1</td></tr><tr><td>plaquetas</td><td>descartada</td><td>1</td></tr><tr><td>crioprecipitado</td><td>disponible</td><td>1</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e11">11. Hemoglobina promedio por tipo de donación</h3>
+<p>Calcula el promedio de hemoglobina y el número de donaciones por tipo.</p>
+<pre><code class="language-sql">SELECT
+  tipo_donacion,
+  COUNT(*) AS donaciones,
+  ROUND(AVG(hemoglobina), 2) AS hemoglobina_promedio
+FROM donaciones
+GROUP BY tipo_donacion
+ORDER BY hemoglobina_promedio DESC;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>tipo_donacion</th><th>donaciones</th><th>hemoglobina_promedio</th></tr></thead>
+  <tbody><tr><td>autologa</td><td>1</td><td>14.80</td></tr><tr><td>voluntaria</td><td>6</td><td>14.57</td></tr><tr><td>reposicion</td><td>1</td><td>13.40</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e12">12. Hospitales con más de una solicitud</h3>
+<p>Muestra el nombre y el total de solicitudes de los hospitales que hayan pedido al menos dos veces.</p>
+<pre><code class="language-sql">SELECT h.nombre, COUNT(s.id_solicitud) AS solicitudes
+FROM hospitales h
+JOIN solicitudes s ON s.id_hospital = h.id_hospital
+GROUP BY h.id_hospital, h.nombre
+HAVING COUNT(s.id_solicitud) &gt;= 2
+ORDER BY solicitudes DESC;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>nombre</th><th>solicitudes</th></tr></thead>
+  <tbody><tr><td>Hospital General de Zona</td><td>2</td></tr><tr><td>Hospital Ángeles</td><td>2</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e13">13. Solicitudes por mes</h3>
+<p>Agrupa las solicitudes de 2026 por mes.</p>
+<pre><code class="language-sql">SELECT
+  DATE_FORMAT(fecha_solicitud, '%Y-%m') AS mes,
+  COUNT(*) AS solicitudes
+FROM solicitudes
+WHERE fecha_solicitud &gt;= '2026-01-01'
+  AND fecha_solicitud &lt; '2027-01-01'
+GROUP BY mes
+ORDER BY mes;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>mes</th><th>solicitudes</th></tr></thead>
+  <tbody><tr><td>2026-08</td><td>2</td></tr><tr><td>2026-10</td><td>4</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e14">14. Unidades sin prueba de VIH</h3>
+<p>Encuentra las unidades que no tienen ninguna prueba de VIH registrada.</p>
+<pre><code class="language-sql">SELECT u.id_unidad, u.codigo_barras, u.estado
+FROM unidades_sangre u
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM pruebas_laboratorio p
+  WHERE p.id_unidad = u.id_unidad
+    AND p.tipo_prueba = 'VIH'
+);</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_unidad</th><th>codigo_barras</th><th>estado</th></tr></thead>
+  <tbody><tr><td>4</td><td>PQ-2026-0001</td><td>descartada</td></tr><tr><td>6</td><td>PL-2026-0002</td><td>disponible</td></tr><tr><td>7</td><td>GR-2026-0004</td><td>vencida</td></tr><tr><td>8</td><td>CR-2026-0001</td><td>disponible</td></tr><tr><td>10</td><td>PL-2026-0003</td><td>disponible</td></tr><tr><td>11</td><td>GR-2026-0006</td><td>despachada</td></tr><tr><td>12</td><td>PQ-2026-0002</td><td>despachada</td></tr><tr><td>13</td><td>ST-2026-0001</td><td>disponible</td></tr><tr><td>14</td><td>PL-2026-0004</td><td>disponible</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e15">15. Unidades por encima del promedio</h3>
+<p>¿Qué unidades tienen un volumen mayor que el promedio de todas las unidades?</p>
+<pre><code class="language-sql">SELECT codigo_barras, volumen_ml
+FROM unidades_sangre
+WHERE volumen_ml &gt; (
+  SELECT AVG(volumen_ml)
+  FROM unidades_sangre
+)
+ORDER BY volumen_ml DESC;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>codigo_barras</th><th>volumen_ml</th></tr></thead>
+  <tbody><tr><td>ST-2026-0001</td><td>450</td></tr><tr><td>GR-2026-0002</td><td>300</td></tr><tr><td>GR-2026-0004</td><td>290</td></tr><tr><td>GR-2026-0005</td><td>285</td></tr><tr><td>GR-2026-0001</td><td>280</td></tr><tr><td>GR-2026-0006</td><td>275</td></tr><tr><td>GR-2026-0003</td><td>270</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h2 id="avanzados">Avanzados</h2>
+
+<h3 id="e16">16. Unidades con negativas y sin positivas</h3>
+<p>Muestra las unidades que tienen al menos una prueba negativa y ninguna positiva.</p>
+<pre><code class="language-sql">SELECT u.id_unidad, u.codigo_barras
+FROM unidades_sangre u
+WHERE EXISTS (
+    SELECT 1 FROM pruebas_laboratorio p
+    WHERE p.id_unidad = u.id_unidad AND p.resultado = 'negativo'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM pruebas_laboratorio p
+    WHERE p.id_unidad = u.id_unidad AND p.resultado = 'positivo'
+  );</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_unidad</th><th>codigo_barras</th></tr></thead>
+  <tbody><tr><td>1</td><td>GR-2026-0001</td></tr><tr><td>2</td><td>PL-2026-0001</td></tr><tr><td>3</td><td>GR-2026-0002</td></tr><tr><td>5</td><td>GR-2026-0003</td></tr><tr><td>6</td><td>PL-2026-0002</td></tr><tr><td>9</td><td>GR-2026-0005</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e17">17. Primero y último movimiento por unidad</h3>
+<p>Para cada unidad, muestra su primer y su último movimiento.</p>
+<pre><code class="language-sql">WITH ranked AS (
+  SELECT
+    id_unidad,
+    tipo_movimiento,
+    fecha_movimiento,
+    ROW_NUMBER() OVER (PARTITION BY id_unidad ORDER BY fecha_movimiento) AS rn_primero,
+    ROW_NUMBER() OVER (PARTITION BY id_unidad ORDER BY fecha_movimiento DESC) AS rn_ultimo
+  FROM movimientos_inventario
+)
+SELECT
+  id_unidad,
+  tipo_movimiento,
+  fecha_movimiento,
+  CASE WHEN rn_primero = 1 THEN 'primero' ELSE 'ultimo' END AS momento
+FROM ranked
+WHERE rn_primero = 1 OR rn_ultimo = 1
+ORDER BY id_unidad, fecha_movimiento;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_unidad</th><th>tipo_movimiento</th><th>fecha_movimiento</th><th>momento</th></tr></thead>
+  <tbody><tr><td>1</td><td>entrada</td><td>2026-08-03 12:30:00</td><td>primero</td></tr><tr><td>1</td><td>salida</td><td>2026-08-04 09:20:00</td><td>ultimo</td></tr><tr><td>2</td><td>entrada</td><td>2026-08-03 12:30:00</td><td>primero</td></tr><tr><td>2</td><td>salida</td><td>2026-08-04 09:20:00</td><td>ultimo</td></tr><tr><td>3</td><td>entrada</td><td>2026-08-10 13:20:00</td><td>primero</td></tr><tr><td>3</td><td>salida</td><td>2026-08-11 12:00:00</td><td>ultimo</td></tr><tr><td>4</td><td>entrada</td><td>2026-08-10 13:20:00</td><td>primero</td></tr><tr><td>4</td><td>descarte</td><td>2026-08-11 08:00:00</td><td>ultimo</td></tr><tr><td>9</td><td>reserva</td><td>2026-10-20 16:45:00</td><td>primero</td></tr><tr><td>11</td><td>salida</td><td>2026-10-03 08:10:00</td><td>primero</td></tr><tr><td>12</td><td>salida</td><td>2026-10-03 08:10:00</td><td>primero</td></tr><tr><td>13</td><td>entrada</td><td>2026-10-14 12:00:00</td><td>primero</td></tr><tr><td>14</td><td>entrada</td><td>2026-10-14 12:00:00</td><td>primero</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e18">18. La unidad que vence primero por componente</h3>
+<p>Elige, para cada componente disponible, la unidad con la fecha de vencimiento más próxima.</p>
+<pre><code class="language-sql">WITH ranked AS (
+  SELECT
+    tipo_componente,
+    codigo_barras,
+    fecha_vencimiento,
+    ROW_NUMBER() OVER (
+      PARTITION BY tipo_componente
+      ORDER BY fecha_vencimiento, id_unidad
+    ) AS rn
+  FROM unidades_sangre
+  WHERE estado = 'disponible'
+)
+SELECT tipo_componente, codigo_barras, fecha_vencimiento
+FROM ranked
+WHERE rn = 1
+ORDER BY fecha_vencimiento;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>tipo_componente</th><th>codigo_barras</th><th>fecha_vencimiento</th></tr></thead>
+  <tbody><tr><td>globulos_rojos</td><td>GR-2026-0003</td><td>2026-09-28</td></tr><tr><td>sangre_total</td><td>ST-2026-0001</td><td>2026-11-25</td></tr><tr><td>plasma</td><td>PL-2026-0002</td><td>2027-08-17</td></tr><tr><td>crioprecipitado</td><td>CR-2026-0001</td><td>2027-09-01</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e19">19. Movimiento anterior y siguiente</h3>
+<p>Muestra cada movimiento con el tipo de movimiento anterior y siguiente de la misma unidad.</p>
+<pre><code class="language-sql">SELECT
+  id_unidad,
+  fecha_movimiento,
+  tipo_movimiento,
+  LAG(tipo_movimiento) OVER (
+    PARTITION BY id_unidad ORDER BY fecha_movimiento
+  ) AS anterior,
+  LEAD(tipo_movimiento) OVER (
+    PARTITION BY id_unidad ORDER BY fecha_movimiento
+  ) AS siguiente
+FROM movimientos_inventario
+ORDER BY id_unidad, fecha_movimiento;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_unidad</th><th>fecha_movimiento</th><th>tipo_movimiento</th><th>anterior</th><th>siguiente</th></tr></thead>
+  <tbody><tr><td>1</td><td>2026-08-03 12:30:00</td><td>entrada</td><td><em>NULL</em></td><td>salida</td></tr><tr><td>1</td><td>2026-08-04 09:20:00</td><td>salida</td><td>entrada</td><td><em>NULL</em></td></tr><tr><td>2</td><td>2026-08-03 12:30:00</td><td>entrada</td><td><em>NULL</em></td><td>salida</td></tr><tr><td>2</td><td>2026-08-04 09:20:00</td><td>salida</td><td>entrada</td><td><em>NULL</em></td></tr><tr><td>3</td><td>2026-08-10 13:20:00</td><td>entrada</td><td><em>NULL</em></td><td>salida</td></tr><tr><td>3</td><td>2026-08-11 12:00:00</td><td>salida</td><td>entrada</td><td><em>NULL</em></td></tr><tr><td>4</td><td>2026-08-10 13:20:00</td><td>entrada</td><td><em>NULL</em></td><td>descarte</td></tr><tr><td>4</td><td>2026-08-11 08:00:00</td><td>descarte</td><td>entrada</td><td><em>NULL</em></td></tr><tr><td>9</td><td>2026-10-20 16:45:00</td><td>reserva</td><td><em>NULL</em></td><td><em>NULL</em></td></tr><tr><td>11</td><td>2026-10-03 08:10:00</td><td>salida</td><td><em>NULL</em></td><td><em>NULL</em></td></tr><tr><td>12</td><td>2026-10-03 08:10:00</td><td>salida</td><td><em>NULL</em></td><td><em>NULL</em></td></tr><tr><td>13</td><td>2026-10-14 12:00:00</td><td>entrada</td><td><em>NULL</em></td><td><em>NULL</em></td></tr><tr><td>14</td><td>2026-10-14 12:00:00</td><td>entrada</td><td><em>NULL</em></td><td><em>NULL</em></td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="e20">20. Trazabilidad completa de una unidad</h3>
+<p>Para la unidad <code>GR-2026-0001</code>, muestra donante, fechas, pruebas, despacho y hospital.</p>
+<pre><code class="language-sql">SELECT
+  u.codigo_barras,
+  u.tipo_componente,
+  CONCAT(d.nombre, ' ', d.apellido_paterno) AS donante,
+  do.fecha_donacion,
+  p.tipo_prueba,
+  p.resultado,
+  de.fecha_despacho,
+  h.nombre AS hospital
+FROM unidades_sangre u
+JOIN donaciones do ON do.id_donacion = u.id_donacion
+JOIN donantes d ON d.id_donante = do.id_donante
+LEFT JOIN pruebas_laboratorio p ON p.id_unidad = u.id_unidad
+LEFT JOIN despacho_detalle dd ON dd.id_unidad = u.id_unidad
+LEFT JOIN despachos de ON de.id_despacho = dd.id_despacho
+LEFT JOIN solicitudes s ON s.id_solicitud = de.id_solicitud
+LEFT JOIN hospitales h ON h.id_hospital = s.id_hospital
+WHERE u.codigo_barras = 'GR-2026-0001'
+ORDER BY p.tipo_prueba;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>codigo_barras</th><th>tipo_componente</th><th>donante</th><th>fecha_donacion</th><th>tipo_prueba</th><th>resultado</th><th>fecha_despacho</th><th>hospital</th></tr></thead>
+  <tbody><tr><td>GR-2026-0001</td><td>globulos_rojos</td><td>Ana Sofía Ramírez</td><td>2026-08-03 09:30:00</td><td>VIH</td><td>negativo</td><td>2026-08-04 09:20:00</td><td>Hospital General de Zona</td></tr><tr><td>GR-2026-0001</td><td>globulos_rojos</td><td>Ana Sofía Ramírez</td><td>2026-08-03 09:30:00</td><td>HBV</td><td>negativo</td><td>2026-08-04 09:20:00</td><td>Hospital General de Zona</td></tr><tr><td>GR-2026-0001</td><td>globulos_rojos</td><td>Ana Sofía Ramírez</td><td>2026-08-03 09:30:00</td><td>HCV</td><td>negativo</td><td>2026-08-04 09:20:00</td><td>Hospital General de Zona</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h2 id="retos">Retos</h2>
+
+<h3 id="r1">Reto 1. Ocupación por componente</h3>
+<p>Para cada componente, muestra total de unidades, disponibles y porcentaje disponible.</p>
+<pre><code class="language-sql">SELECT
+  tipo_componente,
+  COUNT(*) AS total,
+  SUM(estado = 'disponible') AS disponibles,
+  ROUND(SUM(estado = 'disponible') / COUNT(*) * 100, 1) AS pct_disponible
+FROM unidades_sangre
+GROUP BY tipo_componente
+ORDER BY pct_disponible DESC;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>tipo_componente</th><th>total</th><th>disponibles</th><th>pct_disponible</th></tr></thead>
+  <tbody><tr><td>sangre_total</td><td>1</td><td>1</td><td>100.0</td></tr><tr><td>crioprecipitado</td><td>1</td><td>1</td><td>100.0</td></tr><tr><td>plasma</td><td>4</td><td>3</td><td>75.0</td></tr><tr><td>globulos_rojos</td><td>6</td><td>1</td><td>16.7</td></tr><tr><td>plaquetas</td><td>2</td><td>0</td><td>0.0</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="r2">Reto 2. Tasa de rechazo</h3>
+<p>Calcula qué porcentaje de las donaciones registradas fue rechazado.</p>
+<pre><code class="language-sql">SELECT
+  COUNT(*) AS donaciones,
+  SUM(estado = 'rechazada') AS rechazadas,
+  ROUND(SUM(estado = 'rechazada') / COUNT(*) * 100, 2) AS tasa_rechazo_pct
+FROM donaciones;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>donaciones</th><th>rechazadas</th><th>tasa_rechazo_pct</th></tr></thead>
+  <tbody><tr><td>8</td><td>1</td><td>12.50</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="r3">Reto 3. Hospital con más solicitudes</h3>
+<p>Encuentra el hospital con más solicitudes y su porcentaje del total.</p>
+<pre><code class="language-sql">WITH por_hospital AS (
+  SELECT id_hospital, COUNT(*) AS solicitudes
+  FROM solicitudes
+  GROUP BY id_hospital
+),
+total AS (
+  SELECT SUM(solicitudes) AS todas FROM por_hospital
+)
+SELECT
+  h.nombre,
+  p.solicitudes,
+  ROUND(p.solicitudes / t.todas * 100, 1) AS pct_del_total
+FROM por_hospital p
+JOIN hospitales h ON h.id_hospital = p.id_hospital
+CROSS JOIN total t
+ORDER BY p.solicitudes DESC
+LIMIT 1;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>nombre</th><th>solicitudes</th><th>pct_del_total</th></tr></thead>
+  <tbody><tr><td>Hospital General de Zona</td><td>2</td><td>33.3</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="r4">Reto 4. Solicitado frente a despachado</h3>
+<p>Compara, por componente, la cantidad solicitada y la cantidad de unidades despachadas.</p>
+<pre><code class="language-sql">WITH solicitado AS (
+  SELECT tipo_componente, SUM(cantidad) AS unidades
+  FROM solicitud_detalle
+  GROUP BY tipo_componente
+),
+despachado AS (
+  SELECT u.tipo_componente, COUNT(*) AS unidades
+  FROM despacho_detalle dd
+  JOIN unidades_sangre u ON u.id_unidad = dd.id_unidad
+  GROUP BY u.tipo_componente
+)
+SELECT
+  s.tipo_componente,
+  s.unidades AS solicitadas,
+  COALESCE(d.unidades, 0) AS despachadas,
+  s.unidades - COALESCE(d.unidades, 0) AS diferencia
+FROM solicitado s
+LEFT JOIN despachado d ON d.tipo_componente = s.tipo_componente
+ORDER BY diferencia DESC;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>tipo_componente</th><th>solicitadas</th><th>despachadas</th><th>diferencia</th></tr></thead>
+  <tbody><tr><td>globulos_rojos</td><td>6</td><td>3</td><td>3</td></tr><tr><td>plasma</td><td>3</td><td>1</td><td>2</td></tr><tr><td>plaquetas</td><td>3</td><td>1</td><td>2</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="r5">Reto 5. Días entre solicitud y despacho</h3>
+<p>Calcula el promedio de días entre la solicitud y el despacho para los despachos entregados.</p>
+<pre><code class="language-sql">SELECT
+  ROUND(AVG(DATEDIFF(de.fecha_despacho, s.fecha_solicitud)), 2) AS dias_promedio
+FROM despachos de
+JOIN solicitudes s ON s.id_solicitud = de.id_solicitud
+WHERE de.estado = 'entregado';</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>dias_promedio</th></tr></thead>
+  <tbody><tr><td>0.00</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="r6">Reto 6. Donantes elegibles para volver a donar</h3>
+<p>Donantes activos cuya última donación fue hace más de 90 días, o que nunca han donado.</p>
+<pre><code class="language-sql">SELECT
+  d.id_donante,
+  d.nombre,
+  d.apellido_paterno,
+  MAX(do.fecha_donacion) AS ultima_donacion
+FROM donantes d
+LEFT JOIN donaciones do ON do.id_donante = d.id_donante
+WHERE d.activo = 1
+GROUP BY d.id_donante, d.nombre, d.apellido_paterno
+HAVING MAX(do.fecha_donacion) IS NULL
+    OR MAX(do.fecha_donacion) &lt; DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+ORDER BY ultima_donacion;</code></pre>
+<p class="result-label">Salida con la fecha de la demo</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_donante</th><th>nombre</th><th>apellido_paterno</th><th>ultima_donacion</th></tr></thead>
+  <tbody><tr><td>1</td><td>Ana Sofía</td><td>Ramírez</td><td>2026-08-03 09:30:00</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="r7">Reto 7. Ranking de hospitales por volumen despachado</h3>
+<p>Ordena los hospitales por mililitros despachados y asigna un ranking con <code>RANK()</code>.</p>
+<pre><code class="language-sql">SELECT
+  h.nombre,
+  COUNT(dd.id_unidad) AS unidades,
+  SUM(u.volumen_ml) AS ml_despachados,
+  RANK() OVER (ORDER BY SUM(u.volumen_ml) DESC) AS ranking
+FROM hospitales h
+JOIN solicitudes s ON s.id_hospital = h.id_hospital
+JOIN despachos de ON de.id_solicitud = s.id_solicitud
+JOIN despacho_detalle dd ON dd.id_despacho = de.id_despacho
+JOIN unidades_sangre u ON u.id_unidad = dd.id_unidad
+GROUP BY h.id_hospital, h.nombre
+ORDER BY ranking;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>nombre</th><th>unidades</th><th>ml_despachados</th><th>ranking</th></tr></thead>
+  <tbody><tr><td>Hospital General de Zona</td><td>4</td><td>965</td><td>1</td></tr><tr><td>Hospital Ángeles</td><td>1</td><td>300</td><td>2</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="r8">Reto 8. Positivas que no se despacharon</h3>
+<p>Unidades con alguna prueba positiva que no aparecen en ningún despacho.</p>
+<pre><code class="language-sql">SELECT DISTINCT u.id_unidad, u.codigo_barras, u.estado
+FROM unidades_sangre u
+JOIN pruebas_laboratorio p ON p.id_unidad = u.id_unidad
+WHERE p.resultado = 'positivo'
+  AND NOT EXISTS (
+    SELECT 1 FROM despacho_detalle dd WHERE dd.id_unidad = u.id_unidad
+  );</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_unidad</th><th>codigo_barras</th><th>estado</th></tr></thead>
+  <tbody><tr><td>4</td><td>PQ-2026-0001</td><td>descartada</td></tr></tbody>
+</table>
+</div>
+
+
+
+<h3 id="r9">Reto 9. Calendario de vencimientos</h3>
+<p>Genera un calendario de diez días, del 20 al 29 de noviembre de 2026, y cuenta cuántas unidades disponibles vencen cada día.</p>
+<pre><code class="language-sql">WITH RECURSIVE dias(fecha) AS (
+  SELECT DATE('2026-11-20')
+  UNION ALL
+  SELECT DATE_ADD(fecha, INTERVAL 1 DAY)
+  FROM dias
+  WHERE fecha &lt; '2026-11-29'
+)
+SELECT
+  d.fecha,
+  COUNT(u.id_unidad) AS unidades_que_vencen
+FROM dias d
+LEFT JOIN unidades_sangre u
+  ON u.fecha_vencimiento = d.fecha
+ AND u.estado = 'disponible'
+GROUP BY d.fecha
+ORDER BY d.fecha;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>fecha</th><th>unidades_que_vencen</th></tr></thead>
+  <tbody><tr><td>2026-11-20</td><td>0</td></tr><tr><td>2026-11-21</td><td>0</td></tr><tr><td>2026-11-22</td><td>0</td></tr><tr><td>2026-11-23</td><td>0</td></tr><tr><td>2026-11-24</td><td>0</td></tr><tr><td>2026-11-25</td><td>1</td></tr><tr><td>2026-11-26</td><td>0</td></tr><tr><td>2026-11-27</td><td>0</td></tr><tr><td>2026-11-28</td><td>0</td></tr><tr><td>2026-11-29</td><td>0</td></tr></tbody>
+</table>
+</div>
+
+
+
+
+<h3 id="r10">Reto 10. Despacho transaccional</h3>
+<p>Registra el despacho de la unidad 9 para la solicitud 5, actualiza su estado y deja el movimiento de inventario. Todo en una transacción.</p>
+<pre><code class="language-sql">START TRANSACTION;
+
+INSERT INTO despachos (id_solicitud, responsable, destino, estado)
+VALUES (5, 'Lic. Ana Prado', 'Hospital Ángeles', 'preparando');
+
+SET @id_despacho = LAST_INSERT_ID();
+
+INSERT INTO despacho_detalle (id_despacho, id_unidad)
+VALUES (@id_despacho, 9);
+
+UPDATE unidades_sangre
+SET estado = 'despachada', ubicacion = 'Hospital Ángeles'
+WHERE id_unidad = 9
+  AND estado = 'reservada';
+
+-- Verifica que el UPDATE cambió una fila antes de confirmar
+SELECT ROW_COUNT() AS filas_actualizadas;
+
+INSERT INTO movimientos_inventario
+  (id_unidad, tipo_movimiento, fecha_movimiento, usuario, motivo)
+VALUES
+  (9, 'salida', NOW(), 'ana.prado', 'Despacho solicitud 5');
+
+COMMIT;</code></pre>
+<p class="result-label">Salida: filas afectadas por el UPDATE</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>filas_actualizadas</th></tr></thead>
+  <tbody><tr><td>1</td></tr></tbody>
+</table>
+</div>
+
+
+<p>Si el <code>UPDATE</code> devuelve cero, no confirmes: la unidad ya no estaba reservada y el despacho quedaría inconsistente.</p>

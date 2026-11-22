@@ -1,0 +1,137 @@
+<h2 id="pregunta">La pregunta antes que la sintaxis</h2>
+<p>Una consulta empieza por una pregunta, no por <code>SELECT</code>. En el Banco de Sangre la pregunta puede ser «¿qué unidades O+ están disponibles?» o «¿cuántas donaciones hubo en octubre?». La sintaxis solo traduce esa pregunta a columnas, filas y filtros.</p>
+<pre><code class="language-sql">USE banco_sangre;
+
+-- Explorar: primero mira qué hay
+SELECT * FROM unidades_sangre LIMIT 5;
+
+-- Responder: pide solo lo necesario
+SELECT codigo_barras, tipo_componente, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+ORDER BY fecha_vencimiento;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>codigo_barras</th><th>tipo_componente</th><th>fecha_vencimiento</th></tr></thead>
+  <tbody><tr><td>GR-2026-0003</td><td>globulos_rojos</td><td>2026-09-28</td></tr><tr><td>ST-2026-0001</td><td>sangre_total</td><td>2026-11-25</td></tr><tr><td>PL-2026-0002</td><td>plasma</td><td>2027-08-17</td></tr><tr><td>CR-2026-0001</td><td>crioprecipitado</td><td>2027-09-01</td></tr><tr><td>PL-2026-0003</td><td>plasma</td><td>2027-09-25</td></tr><tr><td>PL-2026-0004</td><td>plasma</td><td>2027-10-14</td></tr></tbody>
+</table>
+</div>
+
+<p><code>SELECT *</code> devuelve todas las columnas. Sirve para descubrir una tabla, pero no para una consulta que se ejecutará miles de veces: transporta datos que nadie va a leer.</p>
+
+<h2 id="proyeccion">Proyección: elegir columnas y calcular</h2>
+<p>La lista entre <code>SELECT</code> y <code>FROM</code> se llama <em>proyección</em>. Puede contener columnas, expresiones y alias.</p>
+<pre><code class="language-sql">SELECT
+  id_unidad,
+  codigo_barras,
+  volumen_ml,
+  ROUND(volumen_ml / 1000.0, 2) AS volumen_litros
+FROM unidades_sangre;</code></pre>
+<p>El alias <code>volumen_litros</code> no modifica la tabla: solo nombra la columna del resultado. Si la expresión es delicada, entrecomilla el alias con comillas invertidas.</p>
+<pre><code class="language-sql">SELECT
+  d.nombre,
+  d.apellido_paterno,
+  d.apellido_materno,
+  CONCAT(d.nombre, ' ', d.apellido_paterno) AS donante,
+  d.tipo_sangre,
+  d.factor_rh
+FROM donantes d
+ORDER BY d.apellido_paterno, d.nombre;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>nombre</th><th>apellido_paterno</th><th>apellido_materno</th><th>donante</th><th>tipo_sangre</th><th>factor_rh</th></tr></thead>
+  <tbody><tr><td>Ricardo</td><td>Aguilar</td><td>Pérez</td><td>Ricardo Aguilar</td><td>A</td><td>-</td></tr><tr><td>Luis Fernando</td><td>Cruz</td><td>Mendoza</td><td>Luis Fernando Cruz</td><td>A</td><td>+</td></tr><tr><td>Daniela</td><td>Flores</td><td>Vargas</td><td>Daniela Flores</td><td>B</td><td>+</td></tr><tr><td>María Elena</td><td>Gómez</td><td>Santos</td><td>María Elena Gómez</td><td>B</td><td>-</td></tr><tr><td>Jorge</td><td>Hernández</td><td>Ríos</td><td>Jorge Hernández</td><td>AB</td><td>+</td></tr><tr><td>Héctor</td><td>Medina</td><td>Castillo</td><td>Héctor Medina</td><td>O</td><td>+</td></tr><tr><td>Ana Sofía</td><td>Ramírez</td><td>López</td><td>Ana Sofía Ramírez</td><td>O</td><td>+</td></tr><tr><td>Valeria</td><td>Torres</td><td>Núñez</td><td>Valeria Torres</td><td>O</td><td>-</td></tr></tbody>
+</table>
+</div>
+
+
+<h2 id="distinct">DISTINCT: quitar repetidos</h2>
+<p><code>DISTINCT</code> elimina filas cuyo resultado completo es idéntico. No elimina «casi iguales» ni elige una fila representante.</p>
+<pre><code class="language-sql">-- Combinaciones de grupo y Rh presentes en el inventario
+SELECT DISTINCT grupo_abo, factor_rh
+FROM unidades_sangre
+ORDER BY grupo_abo, factor_rh;
+
+-- Ojo: son dos columnas, no una
+SELECT DISTINCT grupo_abo
+FROM unidades_sangre;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>grupo_abo</th><th>factor_rh</th></tr></thead>
+  <tbody><tr><td>A</td><td>+</td></tr><tr><td>A</td><td>-</td></tr><tr><td>B</td><td>+</td></tr><tr><td>B</td><td>-</td></tr><tr><td>AB</td><td>+</td></tr><tr><td>O</td><td>+</td></tr></tbody>
+</table>
+</div>
+
+<p>La primera consulta devuelve pares; la segunda, solo los grupos. Si lo que quieres es contar cuántas unidades hay por combinación, eso es agregación y se ve en el capítulo 09.</p>
+
+<h2 id="limites">LIMIT: una muestra, no una respuesta</h2>
+<pre><code class="language-sql">-- Las cinco unidades que vencen primero
+SELECT codigo_barras, tipo_componente, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+ORDER BY fecha_vencimiento ASC
+LIMIT 5;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>codigo_barras</th><th>tipo_componente</th><th>fecha_vencimiento</th></tr></thead>
+  <tbody><tr><td>GR-2026-0003</td><td>globulos_rojos</td><td>2026-09-28</td></tr><tr><td>ST-2026-0001</td><td>sangre_total</td><td>2026-11-25</td></tr><tr><td>PL-2026-0002</td><td>plasma</td><td>2027-08-17</td></tr><tr><td>CR-2026-0001</td><td>crioprecipitado</td><td>2027-09-01</td></tr><tr><td>PL-2026-0003</td><td>plasma</td><td>2027-09-25</td></tr></tbody>
+</table>
+</div>
+
+<p><code>LIMIT</code> recorta el resultado. Sin <code>ORDER BY</code>, el motor puede devolver cualquier subconjunto: el orden de las filas no está garantizado. La paginación completa —<code>LIMIT n OFFSET m</code>— se explica en el capítulo siguiente.</p>
+
+<h2 id="orden-ejecucion">El orden en que MySQL piensa</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Paso</th><th>Cláusula</th><th>Qué ocurre</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><code>FROM</code></td><td>Se eligen las tablas y se resuelven los JOIN.</td></tr>
+    <tr><td>2</td><td><code>WHERE</code></td><td>Se filtran filas.</td></tr>
+    <tr><td>3</td><td><code>GROUP BY</code></td><td>Se forman grupos.</td></tr>
+    <tr><td>4</td><td><code>HAVING</code></td><td>Se filtran grupos.</td></tr>
+    <tr><td>5</td><td><code>SELECT</code></td><td>Se calculan columnas y alias.</td></tr>
+    <tr><td>6</td><td><code>ORDER BY</code></td><td>Se ordena el resultado.</td></tr>
+    <tr><td>7</td><td><code>LIMIT</code></td><td>Se recorta.</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Por eso un alias definido en <code>SELECT</code> no existe todavía en <code>WHERE</code>. En <code>ORDER BY</code> sí puedes usarlo porque ya se proyectó.</p>
+<pre><code class="language-sql">-- Falla: el alias aún no existe en WHERE
+SELECT volumen_ml, volumen_ml / 1000.0 AS litros
+FROM unidades_sangre
+WHERE litros &gt; 0.25;
+
+-- Funciona: repite la expresión o filtra en el HAVING de una agregación
+SELECT volumen_ml, volumen_ml / 1000.0 AS litros
+FROM unidades_sangre
+WHERE volumen_ml &gt; 250;</code></pre>
+
+<div class="callout callout--warning">
+  <p class="callout__label">SELECT * en producción</p>
+  <p>Una consulta con <code>SELECT *</code> se rompe cuando alguien agrega una columna, transfiere más datos de los necesarios y dificulta usar un índice de cobertura. Úsalo para explorar, no como contrato de una aplicación.</p>
+</div>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>El mostrador no necesita todas las columnas de <code>unidades_sangre</code>: necesita código, componente, grupo, Rh y vencimiento. Pedir solo eso reduce el tráfico y permite que el índice de disponibilidad cubra la consulta.</p>
+</div>
+
+<h2 id="practica">Práctica</h2>
+<pre><code class="language-sql">-- 1. Diez donantes activos, solo nombre y grupo
+SELECT nombre, apellido_paterno, tipo_sangre, factor_rh
+FROM donantes
+WHERE activo = 1
+ORDER BY apellido_paterno
+LIMIT 10;
+
+-- 2. Componentes distintos que existen en el inventario
+SELECT DISTINCT tipo_componente FROM unidades_sangre;
+
+-- 3. Código y volumen en litros de las unidades despachadas
+SELECT codigo_barras, ROUND(volumen_ml / 1000.0, 2) AS litros
+FROM unidades_sangre
+WHERE estado = 'despachada';</code></pre>

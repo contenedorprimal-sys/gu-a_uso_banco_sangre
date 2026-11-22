@@ -1,0 +1,117 @@
+<h2 id="join">JOIN: cruzar tablas sin perder el hilo</h2>
+<p>El modelo relacional separa hechos en tablas. Para responder una pregunta real hay que volver a unirlas. Un <code>JOIN</code> combina filas de dos tablas usando una condición.</p>
+<pre><code class="language-sql">-- ¿Quién donó y cuándo?
+SELECT d.nombre, d.apellido_paterno, do.fecha_donacion, do.estado
+FROM donantes d
+INNER JOIN donaciones do ON do.id_donante = d.id_donante
+ORDER BY do.fecha_donacion DESC;</code></pre>
+<p>El alias (<code>d</code>, <code>do</code>) no es obligatorio, pero evita ambigüedades cuando varias tablas tienen columnas con el mismo nombre.</p>
+
+<h2 id="tipos-join">INNER, LEFT y el resto</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tipo</th><th>Devuelve</th><th>Cuándo usarlo</th></tr></thead>
+  <tbody>
+    <tr><td><code>INNER JOIN</code></td><td>Solo filas con coincidencia en ambas tablas</td><td>Cuando ambas partes deben existir</td></tr>
+    <tr><td><code>LEFT JOIN</code></td><td>Todas las de la izquierda; NULL si no hay coincidencia</td><td>«Donantes que quizá no han donado»</td></tr>
+    <tr><td><code>RIGHT JOIN</code></td><td>Todas las de la derecha</td><td>Poco usado; se reescribe como LEFT</td></tr>
+    <tr><td><code>CROSS JOIN</code></td><td>Producto cartesiano</td><td>Casi nunca; cuidado con el tamaño</td></tr>
+  </tbody>
+</table>
+</div>
+<pre><code class="language-sql">-- Todos los donantes, aunque nunca hayan donado
+SELECT d.id_donante, d.nombre, COUNT(do.id_donacion) AS donaciones
+FROM donantes d
+LEFT JOIN donaciones do ON do.id_donante = d.id_donante
+GROUP BY d.id_donante, d.nombre
+ORDER BY donaciones DESC;</code></pre>
+<div class="callout callout--note">
+  <p class="callout__label">La trampa del LEFT JOIN con WHERE</p>
+  <p>Si pones <code>WHERE do.estado = 'apta'</code> después de un <code>LEFT JOIN</code>, conviertes el join en <code>INNER</code>: las filas sin donación tienen NULL y no cumplen la condición. Si quieres conservarlas, mueve la condición al <code>ON</code>.</p>
+</div>
+
+<h2 id="agregados">GROUP BY: resumir para decidir</h2>
+<pre><code class="language-sql">-- Unidades disponibles por tipo de componente
+SELECT tipo_componente, COUNT(*) AS unidades,
+       SUM(volumen_ml) AS volumen_total
+FROM unidades_sangre
+WHERE estado = 'disponible'
+GROUP BY tipo_componente
+ORDER BY unidades DESC;
+
+-- Donaciones por mes
+SELECT DATE_FORMAT(fecha_donacion, '%Y-%m') AS mes,
+       COUNT(*) AS donaciones
+FROM donaciones
+WHERE estado = 'apta'
+GROUP BY mes
+ORDER BY mes;</code></pre>
+<p>Las funciones de agregado son <code>COUNT</code>, <code>SUM</code>, <code>AVG</code>, <code>MIN</code> y <code>MAX</code>. Todo lo que aparezca en el <code>SELECT</code> y no esté agregado debe estar en el <code>GROUP BY</code> (salvo que <code>ONLY_FULL_GROUP_BY</code> esté desactivado, algo que no conviene).</p>
+
+<h2 id="having">HAVING: filtrar grupos, no filas</h2>
+<pre><code class="language-sql">-- Hospitales con más de una solicitud
+SELECT h.nombre, COUNT(s.id_solicitud) AS solicitudes
+FROM hospitales h
+INNER JOIN solicitudes s ON s.id_hospital = h.id_hospital
+GROUP BY h.id_hospital, h.nombre
+HAVING COUNT(s.id_solicitud) &gt; 1
+ORDER BY solicitudes DESC;</code></pre>
+<p><code>WHERE</code> actúa antes de agrupar; <code>HAVING</code> después. Si filtras por una columna que no es agregada, probablemente va en <code>WHERE</code>.</p>
+
+<h2 id="subconsultas">Subconsultas: una pregunta dentro de otra</h2>
+<pre><code class="language-sql">-- Unidades que no tienen prueba de VIH registrada
+SELECT u.id_unidad, u.codigo_barras
+FROM unidades_sangre u
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM pruebas_laboratorio p
+  WHERE p.id_unidad = u.id_unidad
+    AND p.tipo_prueba = 'VIH'
+);
+
+-- Donantes que han donado más que el promedio
+SELECT nombre, apellido_paterno
+FROM donantes
+WHERE id_donante IN (
+  SELECT id_donante
+  FROM donaciones
+  GROUP BY id_donante
+  HAVING COUNT(*) &gt; (
+    SELECT AVG(total) FROM (
+      SELECT COUNT(*) AS total FROM donaciones GROUP BY id_donante
+    ) AS promedios
+  )
+);</code></pre>
+<p><code>EXISTS</code> suele ser más claro que <code>IN</code> cuando solo importa si existe al menos una fila. Y evita sorpresas con NULL.</p>
+
+<h2 id="preguntas">Preguntas que el banco de sangre hace</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Pregunta</th><th>Herramienta</th></tr></thead>
+  <tbody>
+    <tr><td>¿Cuántas unidades O+ hay disponibles?</td><td><code>WHERE</code> + <code>COUNT</code></td></tr>
+    <tr><td>¿Qué hospital pidió más componentes este mes?</td><td><code>JOIN</code> + <code>GROUP BY</code></td></tr>
+    <tr><td>¿Qué unidades vencen esta semana y no tienen prueba?</td><td><code>LEFT JOIN</code> + <code>IS NULL</code></td></tr>
+    <tr><td>¿Qué donantes nunca han donado?</td><td><code>LEFT JOIN</code> + <code>COUNT = 0</code></td></tr>
+    <tr><td>¿Qué solicitudes urgentes siguen pendientes?</td><td><code>WHERE</code> + <code>ORDER BY</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>La consulta más usada del mostrador no es un JOIN complejo: es «unidades disponibles del grupo O+ que vencen primero». Está en el capítulo de índices y es la que se usa para medir antes/después en la unidad 5.</p>
+</div>
+
+<pre><code class="language-sql">-- Reporte de trazabilidad de una unidad
+SELECT u.codigo_barras, u.tipo_componente, u.estado,
+       do.fecha_donacion,
+       h.nombre AS hospital,
+       de.fecha_despacho
+FROM unidades_sangre u
+JOIN donaciones do ON do.id_donacion = u.id_donacion
+LEFT JOIN despacho_detalle dd ON dd.id_unidad = u.id_unidad
+LEFT JOIN despachos de ON de.id_despacho = dd.id_despacho
+LEFT JOIN solicitudes s ON s.id_solicitud = de.id_solicitud
+LEFT JOIN hospitales h ON h.id_hospital = s.id_hospital
+WHERE u.codigo_barras = 'GR-2026-0001';</code></pre>

@@ -1,0 +1,108 @@
+<p>Esta sección reúne los registros completos de la base de demostración. Sirve para comprobar a mano los resultados de las consultas: si una tabla del capítulo muestra cinco filas, aquí puedes ver por qué esas cinco y no otras.</p>
+<p>Las salidas de los capítulos se generaron con MySQL 8.0.46 sobre estos mismos datos. Cuando una consulta usa <code>CURDATE()</code>, la tabla lo indica y se usó la fecha de la demo; si la ejecutas otro día, el resultado puede cambiar.</p>
+<div class="callout callout--note"><p class="callout__label">Cómo leer los datos</p><p>Los valores <em>NULL</em> significan ausencia de dato, no cero ni cadena vacía. Las fechas se muestran tal como las devuelve MySQL. Los datos son ficticios y no corresponden a personas reales.</p></div>
+<h2 id="conteos">Conteos por tabla</h2>
+<p>Total de registros cargados por <code>01_datos_demo.sql</code>:</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tabla</th><th>Contenido</th><th>Registros</th></tr></thead>
+  <tbody><tr><td><code>hospitales</code></td><td>Hospitales</td><td>4</td></tr><tr><td><code>donantes</code></td><td>Donantes</td><td>8</td></tr><tr><td><code>donaciones</code></td><td>Donaciones</td><td>8</td></tr><tr><td><code>unidades_sangre</code></td><td>Unidades de sangre</td><td>14</td></tr><tr><td><code>pruebas_laboratorio</code></td><td>Pruebas de laboratorio</td><td>12</td></tr><tr><td><code>solicitudes</code></td><td>Solicitudes</td><td>6</td></tr><tr><td><code>solicitud_detalle</code></td><td>Detalle de solicitudes</td><td>9</td></tr><tr><td><code>despachos</code></td><td>Despachos</td><td>4</td></tr><tr><td><code>despacho_detalle</code></td><td>Detalle de despachos</td><td>5</td></tr><tr><td><code>movimientos_inventario</code></td><td>Movimientos de inventario</td><td>13</td></tr></tbody>
+</table>
+</div>
+<h2 id="orden">Orden de carga</h2>
+<p>Las tablas se cargan respetando las claves foráneas: primero catálogos y donantes, después donaciones, inventario, solicitudes, despachos y movimientos. Si recargas los datos, usa el script completo para no dejar referencias huérfanas.</p>
+<h2 id="hospitales">Hospitales</h2>
+<p>Centros que solicitan componentes. El convenio y el correo son datos de contacto; el estado del convenio no bloquea solicitudes en este esquema, pero sirve para reportes.</p>
+<pre><code class="language-sql">SELECT * FROM hospitales ORDER BY id_hospital;</code></pre>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_hospital</th><th>nombre</th><th>contacto</th><th>telefono</th><th>correo</th><th>direccion</th><th>convenio</th></tr></thead>
+  <tbody><tr><td>1</td><td>Hospital General de Zona</td><td>Dra. Patria Solís</td><td>5555001100</td><td>banco@hgz.example.com</td><td>Av. Salud 100, CDMX</td><td>activo</td></tr><tr><td>2</td><td>Hospital Ángeles</td><td>Dr. Mario Lara</td><td>5555002200</td><td>transfusion@angeles.example.com</td><td>Av. Reforma 500, CDMX</td><td>activo</td></tr><tr><td>3</td><td>Clínica del Valle</td><td>Lic. Sofía Reyes</td><td>5555003300</td><td>compras@clinicavalle.example.com</td><td>Calle Valle 20, Puebla</td><td>activo</td></tr><tr><td>4</td><td>Hospital Infantil Norte</td><td>Dra. Elena Ruiz</td><td>5555004400</td><td>urgencias@hin.example.com</td><td>Av. Norte 88, Monterrey</td><td>suspendido</td></tr></tbody>
+</table>
+</div>
+<h2 id="donantes">Donantes</h2>
+<p>Personas registradas. La combinación de tipo y Rh se guarda en dos columnas; la fecha de registro es la del alta, no la de la última donación.</p>
+<pre><code class="language-sql">SELECT * FROM donantes ORDER BY id_donante;</code></pre>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_donante</th><th>nombre</th><th>apellido_paterno</th><th>apellido_materno</th><th>fecha_nacimiento</th><th>sexo</th><th>tipo_sangre</th><th>factor_rh</th><th>telefono</th><th>correo</th><th>direccion</th><th>fecha_registro</th><th>activo</th></tr></thead>
+  <tbody><tr><td>1</td><td>Ana Sofía</td><td>Ramírez</td><td>López</td><td>1992-04-18</td><td>F</td><td>O</td><td>+</td><td>5512345601</td><td>ana.ramirez@example.com</td><td>Av. Universidad 120, CDMX</td><td>2024-01-10 09:15:00</td><td>1</td></tr><tr><td>2</td><td>Luis Fernando</td><td>Cruz</td><td>Mendoza</td><td>1988-11-02</td><td>M</td><td>A</td><td>+</td><td>5512345602</td><td>luis.cruz@example.com</td><td>Calle Hidalgo 45, Puebla</td><td>2024-02-22 10:40:00</td><td>1</td></tr><tr><td>3</td><td>María Elena</td><td>Gómez</td><td>Santos</td><td>1995-07-30</td><td>F</td><td>B</td><td>-</td><td>5512345603</td><td>maria.gomez@example.com</td><td>Av. Reforma 890, CDMX</td><td>2024-03-05 08:05:00</td><td>1</td></tr><tr><td>4</td><td>Jorge</td><td>Hernández</td><td>Ríos</td><td>1985-01-14</td><td>M</td><td>AB</td><td>+</td><td>5512345604</td><td>jorge.hernandez@example.com</td><td>Calle Morelos 210, Guadalajara</td><td>2024-04-19 16:30:00</td><td>1</td></tr><tr><td>5</td><td>Valeria</td><td>Torres</td><td>Núñez</td><td>1998-09-09</td><td>F</td><td>O</td><td>-</td><td>5512345605</td><td>valeria.torres@example.com</td><td>Av. Juárez 33, Monterrey</td><td>2024-05-23 11:20:00</td><td>1</td></tr><tr><td>6</td><td>Ricardo</td><td>Aguilar</td><td>Pérez</td><td>1980-12-25</td><td>M</td><td>A</td><td>-</td><td>5512345606</td><td>ricardo.aguilar@example.com</td><td>Calle 5 de Mayo 77, Querétaro</td><td>2024-06-11 14:00:00</td><td>1</td></tr><tr><td>7</td><td>Daniela</td><td>Flores</td><td>Vargas</td><td>2000-03-17</td><td>F</td><td>B</td><td>+</td><td>5512345607</td><td>daniela.flores@example.com</td><td>Av. Insurgentes 450, CDMX</td><td>2024-07-08 09:50:00</td><td>1</td></tr><tr><td>8</td><td>Héctor</td><td>Medina</td><td>Castillo</td><td>1975-06-06</td><td>M</td><td>O</td><td>+</td><td>5512345608</td><td>hector.medina@example.com</td><td>Calle Independencia 12, Toluca</td><td>2024-08-14 17:10:00</td><td>0</td></tr></tbody>
+</table>
+</div>
+<h2 id="donaciones">Donaciones</h2>
+<p>Actos de donación. Una donación puede generar varias unidades. El estado indica si fue aceptada o rechazada y por qué.</p>
+<pre><code class="language-sql">SELECT * FROM donaciones ORDER BY id_donacion;</code></pre>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_donacion</th><th>id_donante</th><th>fecha_donacion</th><th>tipo_donacion</th><th>lugar</th><th>peso_kg</th><th>hemoglobina</th><th>presion_arterial</th><th>estado</th><th>observaciones</th></tr></thead>
+  <tbody><tr><td>1</td><td>1</td><td>2026-08-03 09:30:00</td><td>voluntaria</td><td>Unidad Móvil Centro</td><td>64.50</td><td>14.20</td><td>110/70</td><td>apta</td><td><em>NULL</em></td></tr><tr><td>2</td><td>2</td><td>2026-08-10 10:15:00</td><td>voluntaria</td><td>Banco Central</td><td>82.00</td><td>15.10</td><td>120/80</td><td>apta</td><td><em>NULL</em></td></tr><tr><td>3</td><td>3</td><td>2026-08-17 08:45:00</td><td>reposicion</td><td>Banco Central</td><td>58.00</td><td>13.40</td><td>105/65</td><td>apta</td><td>Reposición familiar</td></tr><tr><td>4</td><td>4</td><td>2026-09-01 11:00:00</td><td>voluntaria</td><td>Unidad Móvil Norte</td><td>90.00</td><td>16.00</td><td>130/85</td><td>apta</td><td><em>NULL</em></td></tr><tr><td>5</td><td>5</td><td>2026-09-12 09:10:00</td><td>voluntaria</td><td>Banco Central</td><td>55.00</td><td>12.90</td><td>100/60</td><td>rechazada</td><td>Hemoglobina baja</td></tr><tr><td>6</td><td>6</td><td>2026-09-25 15:20:00</td><td>autologa</td><td>Hospital Ángeles</td><td>78.00</td><td>14.80</td><td>125/75</td><td>apta</td><td>Cirugía programada</td></tr><tr><td>7</td><td>7</td><td>2026-10-02 08:30:00</td><td>voluntaria</td><td>Unidad Móvil Centro</td><td>61.00</td><td>13.80</td><td>115/70</td><td>apta</td><td><em>NULL</em></td></tr><tr><td>8</td><td>8</td><td>2026-10-14 10:05:00</td><td>voluntaria</td><td>Banco Central</td><td>88.00</td><td>15.40</td><td>135/88</td><td>registrada</td><td>Pendiente de tamizaje</td></tr></tbody>
+</table>
+</div>
+<h2 id="unidades_sangre">Unidades de sangre</h2>
+<p>Inventario físico. Cada fila es un componente obtenido de una donación y tiene código único, estado, ubicación y vencimiento.</p>
+<pre><code class="language-sql">SELECT * FROM unidades_sangre ORDER BY id_unidad;</code></pre>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_unidad</th><th>id_donacion</th><th>codigo_barras</th><th>tipo_componente</th><th>grupo_abo</th><th>factor_rh</th><th>volumen_ml</th><th>fecha_extraccion</th><th>fecha_vencimiento</th><th>estado</th><th>ubicacion</th></tr></thead>
+  <tbody><tr><td>1</td><td>1</td><td>GR-2026-0001</td><td>globulos_rojos</td><td>O</td><td>+</td><td>280</td><td>2026-08-03</td><td>2026-09-14</td><td>despachada</td><td>Hospital Ángeles</td></tr><tr><td>2</td><td>1</td><td>PL-2026-0001</td><td>plasma</td><td>O</td><td>+</td><td>220</td><td>2026-08-03</td><td>2027-08-03</td><td>despachada</td><td>Hospital General</td></tr><tr><td>3</td><td>2</td><td>GR-2026-0002</td><td>globulos_rojos</td><td>A</td><td>+</td><td>300</td><td>2026-08-10</td><td>2026-09-21</td><td>despachada</td><td>Hospital Ángeles</td></tr><tr><td>4</td><td>2</td><td>PQ-2026-0001</td><td>plaquetas</td><td>A</td><td>+</td><td>180</td><td>2026-08-10</td><td>2026-08-17</td><td>descartada</td><td>Cuarto frío 2</td></tr><tr><td>5</td><td>3</td><td>GR-2026-0003</td><td>globulos_rojos</td><td>B</td><td>-</td><td>270</td><td>2026-08-17</td><td>2026-09-28</td><td>disponible</td><td>Refrigerador 1</td></tr><tr><td>6</td><td>3</td><td>PL-2026-0002</td><td>plasma</td><td>B</td><td>-</td><td>210</td><td>2026-08-17</td><td>2027-08-17</td><td>disponible</td><td>Congelador B</td></tr><tr><td>7</td><td>4</td><td>GR-2026-0004</td><td>globulos_rojos</td><td>AB</td><td>+</td><td>290</td><td>2026-09-01</td><td>2026-10-13</td><td>vencida</td><td>Refrigerador 2</td></tr><tr><td>8</td><td>4</td><td>CR-2026-0001</td><td>crioprecipitado</td><td>AB</td><td>+</td><td>60</td><td>2026-09-01</td><td>2027-09-01</td><td>disponible</td><td>Congelador A</td></tr><tr><td>9</td><td>6</td><td>GR-2026-0005</td><td>globulos_rojos</td><td>A</td><td>-</td><td>285</td><td>2026-09-25</td><td>2026-11-06</td><td>reservada</td><td>Refrigerador 1</td></tr><tr><td>10</td><td>6</td><td>PL-2026-0003</td><td>plasma</td><td>A</td><td>-</td><td>215</td><td>2026-09-25</td><td>2027-09-25</td><td>disponible</td><td>Congelador B</td></tr><tr><td>11</td><td>7</td><td>GR-2026-0006</td><td>globulos_rojos</td><td>B</td><td>+</td><td>275</td><td>2026-10-02</td><td>2026-11-13</td><td>despachada</td><td>Hospital General</td></tr><tr><td>12</td><td>7</td><td>PQ-2026-0002</td><td>plaquetas</td><td>B</td><td>+</td><td>190</td><td>2026-10-02</td><td>2026-10-09</td><td>despachada</td><td>Hospital General</td></tr><tr><td>13</td><td>8</td><td>ST-2026-0001</td><td>sangre_total</td><td>O</td><td>+</td><td>450</td><td>2026-10-14</td><td>2026-11-25</td><td>disponible</td><td>Cuarto frío 1</td></tr><tr><td>14</td><td>8</td><td>PL-2026-0004</td><td>plasma</td><td>O</td><td>+</td><td>225</td><td>2026-10-14</td><td>2027-10-14</td><td>disponible</td><td>Congelador A</td></tr></tbody>
+</table>
+</div>
+<h2 id="pruebas_laboratorio">Pruebas de laboratorio</h2>
+<p>Resultados por unidad. Una unidad puede tener varias pruebas; el resultado pendiente es el que falta validar.</p>
+<pre><code class="language-sql">SELECT * FROM pruebas_laboratorio ORDER BY id_prueba;</code></pre>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_prueba</th><th>id_unidad</th><th>tipo_prueba</th><th>resultado</th><th>fecha_prueba</th><th>responsable</th><th>observaciones</th></tr></thead>
+  <tbody><tr><td>1</td><td>1</td><td>VIH</td><td>negativo</td><td>2026-08-03 12:00:00</td><td>QFB Laura Méndez</td><td><em>NULL</em></td></tr><tr><td>2</td><td>1</td><td>HBV</td><td>negativo</td><td>2026-08-03 12:00:00</td><td>QFB Laura Méndez</td><td><em>NULL</em></td></tr><tr><td>3</td><td>1</td><td>HCV</td><td>negativo</td><td>2026-08-03 12:00:00</td><td>QFB Laura Méndez</td><td><em>NULL</em></td></tr><tr><td>4</td><td>2</td><td>VIH</td><td>negativo</td><td>2026-08-03 12:00:00</td><td>QFB Laura Méndez</td><td><em>NULL</em></td></tr><tr><td>5</td><td>2</td><td>grupo_sanguineo</td><td>negativo</td><td>2026-08-03 11:30:00</td><td>QFB Laura Méndez</td><td>O positivo</td></tr><tr><td>6</td><td>3</td><td>VIH</td><td>negativo</td><td>2026-08-10 13:00:00</td><td>QFB Pedro Ruiz</td><td><em>NULL</em></td></tr><tr><td>7</td><td>3</td><td>HBV</td><td>negativo</td><td>2026-08-10 13:00:00</td><td>QFB Pedro Ruiz</td><td><em>NULL</em></td></tr><tr><td>8</td><td>4</td><td>HCV</td><td>positivo</td><td>2026-08-10 13:00:00</td><td>QFB Pedro Ruiz</td><td>Unidad descartada</td></tr><tr><td>9</td><td>5</td><td>VIH</td><td>negativo</td><td>2026-08-17 12:10:00</td><td>QFB Laura Méndez</td><td><em>NULL</em></td></tr><tr><td>10</td><td>6</td><td>sifilis</td><td>negativo</td><td>2026-08-17 12:10:00</td><td>QFB Laura Méndez</td><td><em>NULL</em></td></tr><tr><td>11</td><td>7</td><td>chagas</td><td>pendiente</td><td>2026-09-01 15:00:00</td><td>QFB Pedro Ruiz</td><td>Pendiente de confirmación</td></tr><tr><td>12</td><td>9</td><td>VIH</td><td>negativo</td><td>2026-09-25 17:00:00</td><td>QFB Laura Méndez</td><td><em>NULL</em></td></tr></tbody>
+</table>
+</div>
+<h2 id="solicitudes">Solicitudes</h2>
+<p>Pedidos de un hospital. La prioridad y el estado gobiernan la operación diaria del banco.</p>
+<pre><code class="language-sql">SELECT * FROM solicitudes ORDER BY id_solicitud;</code></pre>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_solicitud</th><th>id_hospital</th><th>fecha_solicitud</th><th>prioridad</th><th>estado</th><th>observaciones</th></tr></thead>
+  <tbody><tr><td>1</td><td>1</td><td>2026-08-04 08:00:00</td><td>urgente</td><td>surtida</td><td>Cirugía de trauma</td></tr><tr><td>2</td><td>2</td><td>2026-08-11 10:30:00</td><td>programada</td><td>surtida</td><td>Reposición de inventario</td></tr><tr><td>3</td><td>1</td><td>2026-10-03 07:45:00</td><td>urgente</td><td>parcial</td><td>Paciente con hemorragia</td></tr><tr><td>4</td><td>3</td><td>2026-10-15 11:15:00</td><td>programada</td><td>pendiente</td><td>Solicitud mensual</td></tr><tr><td>5</td><td>2</td><td>2026-10-20 16:40:00</td><td>urgente</td><td>pendiente</td><td>Trasplante programado</td></tr><tr><td>6</td><td>4</td><td>2026-10-21 09:00:00</td><td>programada</td><td>cancelada</td><td>Convenio suspendido</td></tr></tbody>
+</table>
+</div>
+<h2 id="solicitud_detalle">Detalle de solicitudes</h2>
+<p>Líneas de cada solicitud: componente, grupo, Rh y cantidad pedida. La cantidad solicitada puede repartirse entre varias unidades.</p>
+<pre><code class="language-sql">SELECT * FROM solicitud_detalle ORDER BY id_detalle;</code></pre>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_detalle</th><th>id_solicitud</th><th>tipo_componente</th><th>grupo_abo</th><th>factor_rh</th><th>cantidad</th></tr></thead>
+  <tbody><tr><td>1</td><td>1</td><td>globulos_rojos</td><td>O</td><td>+</td><td>1</td></tr><tr><td>2</td><td>1</td><td>plasma</td><td>O</td><td>+</td><td>1</td></tr><tr><td>3</td><td>2</td><td>globulos_rojos</td><td>A</td><td>+</td><td>1</td></tr><tr><td>5</td><td>3</td><td>globulos_rojos</td><td>B</td><td>+</td><td>1</td></tr><tr><td>6</td><td>3</td><td>plaquetas</td><td>B</td><td>+</td><td>1</td></tr><tr><td>7</td><td>4</td><td>globulos_rojos</td><td>O</td><td>-</td><td>2</td></tr><tr><td>8</td><td>4</td><td>plasma</td><td>O</td><td>-</td><td>2</td></tr><tr><td>9</td><td>5</td><td>globulos_rojos</td><td>A</td><td>-</td><td>1</td></tr><tr><td>10</td><td>5</td><td>plaquetas</td><td>A</td><td>-</td><td>2</td></tr></tbody>
+</table>
+</div>
+<h2 id="despachos">Despachos</h2>
+<p>Cabeceras de salida de inventario. Un despacho puede atender total o parcialmente una solicitud.</p>
+<pre><code class="language-sql">SELECT * FROM despachos ORDER BY id_despacho;</code></pre>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_despacho</th><th>id_solicitud</th><th>fecha_despacho</th><th>responsable</th><th>destino</th><th>estado</th></tr></thead>
+  <tbody><tr><td>1</td><td>1</td><td>2026-08-04 09:20:00</td><td>Lic. Carlos Nava</td><td>Hospital General de Zona</td><td>entregado</td></tr><tr><td>2</td><td>2</td><td>2026-08-11 12:00:00</td><td>Lic. Carlos Nava</td><td>Hospital Ángeles</td><td>entregado</td></tr><tr><td>3</td><td>3</td><td>2026-10-03 08:10:00</td><td>Lic. Ana Prado</td><td>Hospital General de Zona</td><td>en_transito</td></tr><tr><td>4</td><td>4</td><td>2026-10-16 10:00:00</td><td>Lic. Ana Prado</td><td>Clínica del Valle</td><td>preparando</td></tr></tbody>
+</table>
+</div>
+<h2 id="despacho_detalle">Detalle de despachos</h2>
+<p>Unidades concretas que salen en cada despacho. Es la unión entre el inventario y el pedido.</p>
+<pre><code class="language-sql">SELECT * FROM despacho_detalle ORDER BY id_despacho, id_unidad;</code></pre>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_despacho</th><th>id_unidad</th></tr></thead>
+  <tbody><tr><td>1</td><td>1</td></tr><tr><td>1</td><td>2</td></tr><tr><td>2</td><td>3</td></tr><tr><td>3</td><td>11</td></tr><tr><td>3</td><td>12</td></tr></tbody>
+</table>
+</div>
+<h2 id="movimientos_inventario">Movimientos de inventario</h2>
+<p>Bitácora de entradas, salidas, reservas, descartes y ajustes. Sirve para reconstruir la trazabilidad de una unidad.</p>
+<pre><code class="language-sql">SELECT * FROM movimientos_inventario ORDER BY id_movimiento;</code></pre>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_movimiento</th><th>id_unidad</th><th>tipo_movimiento</th><th>fecha_movimiento</th><th>usuario</th><th>motivo</th></tr></thead>
+  <tbody><tr><td>1</td><td>1</td><td>entrada</td><td>2026-08-03 12:30:00</td><td>sistema</td><td>Alta de unidad derivada</td></tr><tr><td>2</td><td>2</td><td>entrada</td><td>2026-08-03 12:30:00</td><td>sistema</td><td>Alta de unidad derivada</td></tr><tr><td>3</td><td>1</td><td>salida</td><td>2026-08-04 09:20:00</td><td>carlos.nava</td><td>Despacho solicitud 1</td></tr><tr><td>4</td><td>2</td><td>salida</td><td>2026-08-04 09:20:00</td><td>carlos.nava</td><td>Despacho solicitud 1</td></tr><tr><td>5</td><td>3</td><td>entrada</td><td>2026-08-10 13:20:00</td><td>sistema</td><td>Alta de unidad derivada</td></tr><tr><td>6</td><td>4</td><td>entrada</td><td>2026-08-10 13:20:00</td><td>sistema</td><td>Alta de unidad derivada</td></tr><tr><td>7</td><td>4</td><td>descarte</td><td>2026-08-11 08:00:00</td><td>pedro.ruiz</td><td>Prueba HCV positiva</td></tr><tr><td>8</td><td>3</td><td>salida</td><td>2026-08-11 12:00:00</td><td>carlos.nava</td><td>Despacho solicitud 2</td></tr><tr><td>9</td><td>11</td><td>salida</td><td>2026-10-03 08:10:00</td><td>ana.prado</td><td>Despacho solicitud 3</td></tr><tr><td>10</td><td>12</td><td>salida</td><td>2026-10-03 08:10:00</td><td>ana.prado</td><td>Despacho solicitud 3</td></tr><tr><td>11</td><td>9</td><td>reserva</td><td>2026-10-20 16:45:00</td><td>ana.prado</td><td>Reserva solicitud urgente 5</td></tr><tr><td>12</td><td>13</td><td>entrada</td><td>2026-10-14 12:00:00</td><td>sistema</td><td>Alta de unidad derivada</td></tr><tr><td>13</td><td>14</td><td>entrada</td><td>2026-10-14 12:00:00</td><td>sistema</td><td>Alta de unidad derivada</td></tr></tbody>
+</table>
+</div>
+<h2 id="reproducir">Reproducir una consulta</h2>
+<p>Para comparar cualquier resultado, abre MySQL, selecciona la base y ejecuta la consulta del capítulo. La tabla de salida debe coincidir en filas y columnas; el orden solo importa si la consulta incluye <code>ORDER BY</code>.</p>
+<pre><code class="language-sql">USE banco_sangre;
+
+SELECT * FROM unidades_sangre ORDER BY id_unidad;</code></pre>

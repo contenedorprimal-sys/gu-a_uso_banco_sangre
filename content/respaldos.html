@@ -1,0 +1,107 @@
+<h2 id="regla">Un respaldo no probado no es un respaldo</h2>
+<p>Programar <code>mysqldump</code> y no volver a mirarlo es una falsa sensación de seguridad. El respaldo existe cuando puedes restaurarlo y demostrar que los datos están completos. La prueba de restauración es parte del procedimiento, no un extra.</p>
+
+<h2 id="tipos">Completo, incremental y binlog</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tipo</th><th>Qué guarda</th><th>Cuándo usarlo</th></tr></thead>
+  <tbody>
+    <tr><td>Completo</td><td>Toda la base</td><td>Base diaria; punto de partida de la restauración</td></tr>
+    <tr><td>Incremental</td><td>Solo cambios desde el último respaldo</td><td>Cada 15 minutos, para reducir RPO</td></tr>
+    <tr><td>Binlog</td><td>Historial de cambios del servidor</td><td>Recuperación punto en el tiempo (PITR)</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="dump">Respaldo lógico con mysqldump</h2>
+<pre><code class="language-bash">mysqldump \
+  --host=127.0.0.1 \
+  --user=dba_sangre \
+  --password \
+  --single-transaction \
+  --routines \
+  --triggers \
+  --events \
+  --set-gtid-purged=OFF \
+  --databases banco_sangre \
+  &gt; /respaldo/banco_sangre_completo_$(date +%Y%m%d_%H%M).sql</code></pre>
+<ul>
+  <li><code>--single-transaction</code>: consistencia sin bloquear la operación (InnoDB).</li>
+  <li><code>--routines</code>, <code>--triggers</code>, <code>--events</code>: incluye procedimientos, triggers y eventos.</li>
+  <li><code>--databases</code>: guarda el <code>CREATE DATABASE</code> y el <code>USE</code>.</li>
+</ul>
+<p>Comprime y firma el resultado. Un archivo de respaldo sin checksum no permite saber si se corrompió en el camino.</p>
+<pre><code class="language-bash">gzip -c /respaldo/banco_sangre_completo_*.sql | sha256sum &gt; respaldo.sha256
+ls -lh /respaldo/</code></pre>
+
+<h2 id="binlog">Binlog y recuperación punto en el tiempo</h2>
+<pre><code class="language-sql">SHOW VARIABLES WHERE Variable_name IN (
+  'log_bin', 'binlog_format', 'binlog_expire_logs_seconds', 'server_id'
+);
+
+SHOW BINARY LOGS;
+SHOW MASTER STATUS;  -- en MySQL 8.4+ se usa SHOW BINARY LOG STATUS</code></pre>
+<p>Para restaurar hasta un punto exacto, se aplica el respaldo completo y después los binlogs hasta el minuto anterior al incidente:</p>
+<pre><code class="language-bash">mysqlbinlog --start-datetime="2026-11-01 00:00:00" \
+            --stop-datetime="2026-11-01 12:00:00" \
+  /respaldo/binlog/mysql-bin.000001 \
+  | mysql --user=dba_sangre --password banco_sangre</code></pre>
+
+<h2 id="simulacion">Simulación de pérdida y restauración</h2>
+<pre><code class="language-sql">-- 1. Estado previo
+SELECT COUNT(*) AS unidades_antes FROM unidades_sangre;
+
+-- 2. Simular el error dentro de una transacción
+START TRANSACTION;
+DELETE FROM despacho_detalle WHERE id_despacho = 2;
+DELETE FROM unidades_sangre WHERE id_unidad IN (3, 12);
+SELECT COUNT(*) AS unidades_despues FROM unidades_sangre;
+ROLLBACK;  -- en el simulacro, no se pierde nada</code></pre>
+<p>En un incidente real no haces <code>ROLLBACK</code>: restauras el respaldo completo y aplicas binlog hasta antes del borrado. Después validas:</p>
+<pre><code class="language-sql">SELECT COUNT(*) AS unidades_restauradas FROM unidades_sangre;
+SELECT COUNT(*) AS despachos_restaurados FROM despachos;
+
+-- ¿Hay huérfanos?
+SELECT dd.id_despacho, dd.id_unidad
+FROM despacho_detalle dd
+LEFT JOIN despachos d ON d.id_despacho = dd.id_despacho
+LEFT JOIN unidades_sangre u ON u.id_unidad = dd.id_unidad
+WHERE d.id_despacho IS NULL OR u.id_unidad IS NULL;</code></pre>
+
+<h2 id="rto-rpo">RTO, RPO y la prueba real</h2>
+<p>El banco de sangre define RTO de 30 minutos y RPO de 15 minutos. Eso obliga a:</p>
+<ul>
+  <li>Respaldo completo diario a las 02:00.</li>
+  <li>Binlog copiado cada 15 minutos.</li>
+  <li>Copia externa cifrada (off-site).</li>
+  <li>Restauración probada cada trimestre, midiendo el tiempo real.</li>
+  <li>Retención: 30 días completos, 12 meses mensuales, 7 años de auditoría.</li>
+</ul>
+<p>Si la restauración tarda 50 minutos, tu RTO real es 50 minutos, no 30. La prueba es la que manda.</p>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>El script <code>04_unidad4_respaldo_recuperacion.sql</code> documenta el procedimiento, la simulación y el checklist. El script <code>04_respaldo_incremental.sh</code> automatiza el respaldo completo y la copia del binlog. Ambos son parte del entregable de la unidad 4.</p>
+</div>
+
+<h2 id="checklist">Checklist de verificación</h2>
+<ul class="checklist">
+  <li>El respaldo termina sin errores y pesa un tamaño razonable.</li>
+  <li>El archivo contiene <code>CREATE TABLE</code> y datos.</li>
+  <li>El checksum coincide con el del servidor de respaldo.</li>
+  <li>La restauración en un servidor limpio reproduce los conteos.</li>
+  <li>Los triggers y eventos existen después de restaurar.</li>
+  <li>El binlog permite recuperar hasta el minuto del incidente.</li>
+  <li>El tiempo real de restauración es ≤ RTO.</li>
+  <li>El punto de recuperación es ≤ RPO.</li>
+</ul>
+
+<h2 id="errores">Errores comunes</h2>
+<ul>
+  <li>Respaldar sin <code>--single-transaction</code> y obtener una copia inconsistente.</li>
+  <li>Guardar el respaldo en el mismo disco del servidor.</li>
+  <li>No incluir triggers, eventos o rutinas.</li>
+  <li>No probar la restauración nunca.</li>
+  <li>Confundir el respaldo con la replicación: la réplica no protege de un <code>DROP TABLE</code>.</li>
+  <li>No cifrar la copia externa con datos de pacientes.</li>
+</ul>

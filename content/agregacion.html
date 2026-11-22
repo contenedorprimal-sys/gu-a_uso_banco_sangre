@@ -1,0 +1,178 @@
+<h2 id="agregados">Agregar es responder con números</h2>
+<p>Una fila cuenta un hecho; un agregado cuenta una historia. <code>SUM(volumen_ml)</code> dice cuánta sangre hay; <code>COUNT(*)</code> dice cuántas unidades; <code>AVG(hemoglobina)</code> dice qué tan apto es un grupo de donaciones.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Función</th><th>Qué hace</th><th>Detalle importante</th></tr></thead>
+  <tbody>
+    <tr><td><code>COUNT(*)</code></td><td>Cuenta filas</td><td>Incluye filas con NULL.</td></tr>
+    <tr><td><code>COUNT(columna)</code></td><td>Cuenta valores no nulos</td><td>Ignora NULL.</td></tr>
+    <tr><td><code>COUNT(DISTINCT columna)</code></td><td>Cuenta valores distintos</td><td>Útil para «cuántos hospitales pidieron».</td></tr>
+    <tr><td><code>SUM</code></td><td>Suma</td><td>Ignora NULL; no lo confundas con cero.</td></tr>
+    <tr><td><code>AVG</code></td><td>Promedio</td><td>También ignora NULL.</td></tr>
+    <tr><td><code>MIN</code>, <code>MAX</code></td><td>Mínimo y máximo</td><td>Funcionan con fechas y texto.</td></tr>
+  </tbody>
+</table>
+</div>
+<pre><code class="language-sql">-- Inventario disponible en una sola fila
+SELECT
+  COUNT(*) AS unidades,
+  SUM(volumen_ml) AS volumen_total_ml,
+  ROUND(AVG(volumen_ml), 2) AS volumen_promedio,
+  MIN(fecha_vencimiento) AS primer_vencimiento,
+  MAX(fecha_vencimiento) AS ultimo_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible';</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>unidades</th><th>volumen_total_ml</th><th>volumen_promedio</th><th>primer_vencimiento</th><th>ultimo_vencimiento</th></tr></thead>
+  <tbody><tr><td>6</td><td>1430</td><td>238.33</td><td>2026-09-28</td><td>2027-10-14</td></tr></tbody>
+</table>
+</div>
+
+
+<h2 id="group-by">GROUP BY: una fila por grupo</h2>
+<p>Sin <code>GROUP BY</code>, un agregado colapsa todas las filas en una. Con <code>GROUP BY</code>, calcula un agregado por cada grupo.</p>
+<pre><code class="language-sql">-- ¿Cuántas unidades disponibles hay de cada componente?
+SELECT
+  tipo_componente,
+  COUNT(*) AS unidades,
+  SUM(volumen_ml) AS volumen_total
+FROM unidades_sangre
+WHERE estado = 'disponible'
+GROUP BY tipo_componente
+ORDER BY unidades DESC;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>tipo_componente</th><th>unidades</th><th>volumen_total</th></tr></thead>
+  <tbody><tr><td>plasma</td><td>3</td><td>650</td></tr><tr><td>sangre_total</td><td>1</td><td>450</td></tr><tr><td>globulos_rojos</td><td>1</td><td>270</td></tr><tr><td>crioprecipitado</td><td>1</td><td>60</td></tr></tbody>
+</table>
+</div>
+
+<p>La regla es simple: toda columna del <code>SELECT</code> que no esté dentro de un agregado debe aparecer en el <code>GROUP BY</code>. MySQL puede desactivar <code>ONLY_FULL_GROUP_BY</code>, pero hacerlo permite resultados ambiguos, no más flexibilidad.</p>
+<div class="callout callout--warning">
+  <p class="callout__label">ONLY_FULL_GROUP_BY</p>
+  <p>Si el servidor lo tiene activo, una consulta como <code>SELECT nombre, COUNT(*) FROM donantes</code> falla. Es una protección: no hay un <code>nombre</code> único que represente al grupo. Agrupa por <code>id_donante, nombre</code> o elimina la columna.</p>
+</div>
+
+<h2 id="group-join">Agrupar después de unir tablas</h2>
+<pre><code class="language-sql">-- Donaciones por donante, incluyendo a quien nunca ha donado
+SELECT
+  d.id_donante,
+  CONCAT(d.nombre, ' ', d.apellido_paterno) AS donante,
+  COUNT(do.id_donacion) AS donaciones
+FROM donantes d
+LEFT JOIN donaciones do ON do.id_donante = d.id_donante
+GROUP BY d.id_donante, d.nombre, d.apellido_paterno
+ORDER BY donaciones DESC, d.id_donante;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_donante</th><th>donante</th><th>donaciones</th></tr></thead>
+  <tbody><tr><td>1</td><td>Ana Sofía Ramírez</td><td>1</td></tr><tr><td>2</td><td>Luis Fernando Cruz</td><td>1</td></tr><tr><td>3</td><td>María Elena Gómez</td><td>1</td></tr><tr><td>4</td><td>Jorge Hernández</td><td>1</td></tr><tr><td>5</td><td>Valeria Torres</td><td>1</td></tr><tr><td>6</td><td>Ricardo Aguilar</td><td>1</td></tr><tr><td>7</td><td>Daniela Flores</td><td>1</td></tr><tr><td>8</td><td>Héctor Medina</td><td>1</td></tr></tbody>
+</table>
+</div>
+
+<p><code>COUNT(do.id_donacion)</code> cuenta valores no nulos. En un <code>LEFT JOIN</code>, quien no tiene donaciones recibe <code>NULL</code> y el conteo da cero. Si usaras <code>COUNT(*)</code>, contarías la fila del donante aunque no haya donación.</p>
+
+<h2 id="having">HAVING: filtrar grupos</h2>
+<p><code>WHERE</code> filtra filas antes de agrupar. <code>HAVING</code> filtra grupos después de agregar. Si la condición usa un agregado, va en <code>HAVING</code>.</p>
+<pre><code class="language-sql">-- Hospitales con dos o más solicitudes
+SELECT
+  h.id_hospital,
+  h.nombre,
+  COUNT(s.id_solicitud) AS solicitudes
+FROM hospitales h
+JOIN solicitudes s ON s.id_hospital = h.id_hospital
+GROUP BY h.id_hospital, h.nombre
+HAVING COUNT(s.id_solicitud) &gt;= 2
+ORDER BY solicitudes DESC;
+
+-- Solo solicitudes de 2026, y luego agrupar
+SELECT
+  h.nombre,
+  COUNT(*) AS solicitudes_2026
+FROM hospitales h
+JOIN solicitudes s ON s.id_hospital = h.id_hospital
+WHERE s.fecha_solicitud &gt;= '2026-01-01'
+  AND s.fecha_solicitud &lt; '2027-01-01'
+GROUP BY h.id_hospital, h.nombre
+HAVING COUNT(*) &gt; 0;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_hospital</th><th>nombre</th><th>solicitudes</th></tr></thead>
+  <tbody><tr><td>1</td><td>Hospital General de Zona</td><td>2</td></tr><tr><td>2</td><td>Hospital Ángeles</td><td>2</td></tr></tbody>
+</table>
+</div>
+
+
+<h2 id="condicional">Agregación condicional: varias preguntas, una pasada</h2>
+<p>En MySQL, una comparación devuelve 1 o 0. Sumar comparaciones cuenta cuántas filas cumplen cada condición.</p>
+<pre><code class="language-sql">SELECT
+  tipo_componente,
+  COUNT(*) AS total,
+  SUM(estado = 'disponible') AS disponibles,
+  SUM(estado = 'reservada') AS reservadas,
+  SUM(estado = 'despachada') AS despachadas,
+  SUM(estado = 'vencida') AS vencidas,
+  SUM(estado = 'descartada') AS descartadas
+FROM unidades_sangre
+GROUP BY tipo_componente
+ORDER BY total DESC;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>tipo_componente</th><th>total</th><th>disponibles</th><th>reservadas</th><th>despachadas</th><th>vencidas</th><th>descartadas</th></tr></thead>
+  <tbody><tr><td>globulos_rojos</td><td>6</td><td>1</td><td>1</td><td>3</td><td>1</td><td>0</td></tr><tr><td>plasma</td><td>4</td><td>3</td><td>0</td><td>1</td><td>0</td><td>0</td></tr><tr><td>plaquetas</td><td>2</td><td>0</td><td>0</td><td>1</td><td>0</td><td>1</td></tr><tr><td>sangre_total</td><td>1</td><td>1</td><td>0</td><td>0</td><td>0</td><td>0</td></tr><tr><td>crioprecipitado</td><td>1</td><td>1</td><td>0</td><td>0</td><td>0</td><td>0</td></tr></tbody>
+</table>
+</div>
+
+<p>La forma portable usa <code>CASE</code>; ambas son útiles y la segunda se lee mejor cuando la condición es compuesta.</p>
+<pre><code class="language-sql">SELECT
+  tipo_componente,
+  SUM(CASE WHEN estado = 'disponible' THEN 1 ELSE 0 END) AS disponibles,
+  SUM(CASE WHEN estado = 'disponible' THEN volumen_ml ELSE 0 END) AS ml_disponibles
+FROM unidades_sangre
+GROUP BY tipo_componente;</code></pre>
+
+<h2 id="rollup">WITH ROLLUP: el total al final</h2>
+<pre><code class="language-sql">SELECT
+  tipo_componente,
+  grupo_abo,
+  COUNT(*) AS unidades
+FROM unidades_sangre
+GROUP BY tipo_componente, grupo_abo WITH ROLLUP;</code></pre>
+<p class="result-label">Salida completa (subtotales y total)</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>tipo_componente</th><th>grupo_abo</th><th>unidades</th></tr></thead>
+  <tbody><tr><td>sangre_total</td><td>O</td><td>1</td></tr><tr><td>sangre_total</td><td><em>NULL</em></td><td>1</td></tr><tr><td>globulos_rojos</td><td>A</td><td>2</td></tr><tr><td>globulos_rojos</td><td>B</td><td>2</td></tr><tr><td>globulos_rojos</td><td>AB</td><td>1</td></tr><tr><td>globulos_rojos</td><td>O</td><td>1</td></tr><tr><td>globulos_rojos</td><td><em>NULL</em></td><td>6</td></tr><tr><td>plasma</td><td>A</td><td>1</td></tr><tr><td>plasma</td><td>B</td><td>1</td></tr><tr><td>plasma</td><td>O</td><td>2</td></tr><tr><td>plasma</td><td><em>NULL</em></td><td>4</td></tr><tr><td>plaquetas</td><td>A</td><td>1</td></tr><tr><td>plaquetas</td><td>B</td><td>1</td></tr><tr><td>plaquetas</td><td><em>NULL</em></td><td>2</td></tr><tr><td>crioprecipitado</td><td>AB</td><td>1</td></tr><tr><td>crioprecipitado</td><td><em>NULL</em></td><td>1</td></tr><tr><td><em>NULL</em></td><td><em>NULL</em></td><td>14</td></tr></tbody>
+</table>
+</div>
+
+<p><code>WITH ROLLUP</code> agrega filas de subtotal y total. La fila con <code>tipo_componente NULL</code> y <code>grupo_abo NULL</code> es el total general; no es un dato faltante, es una fila generada por el rollup.</p>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>El reporte diario no pide «todas las unidades»: pide cuántas hay por componente y grupo, cuántas vencen esta semana y cuántas están reservadas. Tres agregaciones sobre la misma tabla responden las tres preguntas sin traer el inventario completo a la aplicación.</p>
+</div>
+
+<h2 id="practica">Práctica</h2>
+<pre><code class="language-sql">-- 1. Donaciones por estado y tipo de donación
+SELECT estado, tipo_donacion, COUNT(*) AS total
+FROM donaciones
+GROUP BY estado, tipo_donacion
+ORDER BY estado, total DESC;
+
+-- 2. Promedio de hemoglobina por estado de donación
+SELECT estado, ROUND(AVG(hemoglobina), 2) AS hemoglobina_promedio
+FROM donaciones
+GROUP BY estado;
+
+-- 3. Componentes con más de dos unidades registradas
+SELECT tipo_componente, COUNT(*) AS unidades
+FROM unidades_sangre
+GROUP BY tipo_componente
+HAVING COUNT(*) &gt; 2;</code></pre>

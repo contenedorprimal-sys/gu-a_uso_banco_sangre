@@ -1,0 +1,98 @@
+<h2 id="cuentas">Cada persona, su cuenta</h2>
+<p>Compartir el usuario <code>root</code> es la forma más rápida de no saber quién hizo qué. Cada integrante del equipo y cada aplicación deben tener una cuenta propia. Así la auditoría tiene nombre y apellido, y revocar un acceso no afecta a los demás.</p>
+<pre><code class="language-sql">-- Crear un usuario solo para el laboratorio
+CREATE USER 'lab_user'@'localhost' IDENTIFIED BY 'Lab#2026';
+
+-- Ver sus privilegios iniciales (normalmente USAGE, es decir, ninguno)
+SHOW GRANTS FOR 'lab_user'@'localhost';</code></pre>
+<p>El formato <code>'usuario'@'host'</code> importa: <code>localhost</code>, <code>127.0.0.1</code> y <code>%</code> son cuentas distintas. Un usuario creado para <code>localhost</code> no puede conectarse desde otra máquina.</p>
+
+<h2 id="minimo-privilegio">Mínimo privilegio</h2>
+<p>El principio es simple: cada cuenta recibe solo lo que necesita para su función, ni un privilegio más. En el banco de sangre:</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Perfil</th><th>Necesita</th><th>No necesita</th></tr></thead>
+  <tbody>
+    <tr><td>Laboratorio</td><td>Leer unidades, insertar/actualizar pruebas</td><td>Borrar unidades, cambiar donantes</td></tr>
+    <tr><td>Recepción de hospital</td><td>Ver inventario disponible, crear solicitudes</td><td>Ver datos personales, modificar unidades</td></tr>
+    <tr><td>Auditoría</td><td>Leer auditoría y bitácoras</td><td>Escribir en la operación</td></tr>
+    <tr><td>DBA</td><td>Administrar el esquema</td><td>Ser usado por la aplicación</td></tr>
+  </tbody>
+</table>
+</div>
+
+<pre><code class="language-sql">GRANT SELECT, INSERT, UPDATE ON banco_sangre.pruebas_laboratorio
+  TO 'lab_user'@'localhost';
+
+GRANT SELECT ON banco_sangre.v_unidades_disponibles
+  TO 'recepcion_user'@'localhost';
+
+GRANT SELECT ON banco_sangre.auditoria_unidades
+  TO 'auditor_user'@'localhost';
+
+FLUSH PRIVILEGES;</code></pre>
+<p><code>FLUSH PRIVILEGES</code> no es necesario después de <code>GRANT</code> en MySQL moderno; se usa cuando modificas las tablas de privilegios a mano. No hace daño, pero no es magia.</p>
+
+<h2 id="roles">Roles: privilegios con nombre</h2>
+<p>Cuando tres personas del laboratorio necesitan lo mismo, no repitas el mismo <code>GRANT</code> tres veces. Crea un rol, asígnale privilegios y dáselo a los usuarios.</p>
+<pre><code class="language-sql">CREATE ROLE rol_laboratorio;
+
+GRANT SELECT, INSERT, UPDATE ON banco_sangre.pruebas_laboratorio TO rol_laboratorio;
+GRANT SELECT, UPDATE ON banco_sangre.unidades_sangre TO rol_laboratorio;
+GRANT SELECT ON banco_sangre.v_unidades_disponibles TO rol_laboratorio;
+
+GRANT rol_laboratorio TO 'lab_user'@'localhost';
+SET DEFAULT ROLE ALL TO 'lab_user'@'localhost';</code></pre>
+<p>Si mañana el laboratorio necesita leer <code>donaciones</code>, agregas el privilegio al rol y todos los usuarios lo heredan. Revocar también es centralizado.</p>
+
+<div class="callout callout--warning">
+  <p class="callout__label">Error común</p>
+  <p>Dar <code>ALL PRIVILEGES ON *.*</code> «para que funcione». Eso convierte cualquier error de la aplicación en un borrado de la base completa. Si una consulta falla por permisos, se corrige el permiso puntual, no se abre todo.</p>
+</div>
+
+<h2 id="columnas">Privilegios por columna y por vista</h2>
+<p>A veces no quieres ocultar la tabla completa, solo una columna. MySQL permite otorgar <code>SELECT</code> sobre columnas específicas.</p>
+<pre><code class="language-sql">-- Recepción puede ver el nombre del donante, pero no su correo ni teléfono
+GRANT SELECT (id_donante, nombre, apellido_paterno, tipo_sangre, factor_rh)
+  ON banco_sangre.donantes TO 'recepcion_user'@'localhost';</code></pre>
+<p>La otra estrategia es una vista que exponga solo lo necesario. El proyecto usa <code>v_unidades_disponibles</code>, que no incluye ningún dato personal del donante.</p>
+
+<h2 id="revocar">Revocar y verificar</h2>
+<pre><code class="language-sql">-- Quitar un privilegio que ya no corresponde
+REVOKE INSERT ON banco_sangre.solicitudes FROM 'recepcion_user'@'localhost';
+
+-- Ver todos los privilegios efectivos
+SHOW GRANTS FOR 'recepcion_user'@'localhost';
+
+-- Ver los usuarios existentes
+SELECT user, host FROM mysql.user ORDER BY user;</code></pre>
+<p>En una auditoría, <code>SHOW GRANTS</code> es la primera consulta. Si no puedes explicar por qué cada usuario tiene cada privilegio, hay un problema.</p>
+
+<h2 id="contrasenas">Contraseñas y conexión</h2>
+<ul>
+  <li>No escribas contraseñas en scripts versionados. Usa variables de entorno o un archivo de configuración protegido.</li>
+  <li>Rota contraseñas y elimina cuentas de exempleados o proyectos terminados.</li>
+  <li>La aplicación no debe conectarse como <code>root</code>.</li>
+  <li>Si el servidor escucha en red, restringe el host de cada cuenta.</li>
+</ul>
+<pre><code class="language-sql">-- Una cuenta de aplicación con lo mínimo
+CREATE USER 'app_banco'@'10.0.0.%' IDENTIFIED BY 'App#2026';
+GRANT SELECT, INSERT, UPDATE ON banco_sangre.unidades_sangre TO 'app_banco'@'10.0.0.%';
+GRANT SELECT, INSERT ON banco_sangre.movimientos_inventario TO 'app_banco'@'10.0.0.%';</code></pre>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>El script <code>03_unidad3_seguridad_monitoreo_auditoria.sql</code> crea cuatro roles y cuatro usuarios. Recepción solo ve la vista; laboratorio no puede borrar unidades; auditoría no escribe. Esa separación es el entregable de seguridad de la unidad 3.</p>
+</div>
+
+<h2 id="comprobacion">Comprobación</h2>
+<pre><code class="language-sql">-- ¿Qué roles existen?
+SELECT role_name, role_host FROM mysql.roles_mapping;
+
+-- ¿Qué privilegios tiene el rol de laboratorio?
+SHOW GRANTS FOR rol_laboratorio;
+
+-- Probar una conexión con otro usuario desde terminal:
+-- mysql -u lab_user -p -h 127.0.0.1 banco_sangre
+</code></pre>
+<p>La prueba real no es leer el <code>GRANT</code>: es conectarse con ese usuario e intentar la operación prohibida. Si falla con «denied», el privilegio está bien aplicado.</p>

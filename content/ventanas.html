@@ -1,0 +1,236 @@
+<h2 id="idea">Calcular sin perder filas</h2>
+<p><code>GROUP BY</code> reduce varias filas a una. Una función de ventana calcula sobre un conjunto de filas relacionadas y deja cada fila en su lugar. Es la diferencia entre «dame el total por hospital» y «dame cada solicitud con el total de su hospital al lado».</p>
+<pre><code class="language-sql">SELECT
+  id_solicitud,
+  id_hospital,
+  fecha_solicitud,
+  COUNT(*) OVER (PARTITION BY id_hospital) AS solicitudes_del_hospital
+FROM solicitudes
+ORDER BY id_hospital, fecha_solicitud;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_solicitud</th><th>id_hospital</th><th>fecha_solicitud</th><th>solicitudes_del_hospital</th></tr></thead>
+  <tbody><tr><td>1</td><td>1</td><td>2026-08-04 08:00:00</td><td>2</td></tr><tr><td>3</td><td>1</td><td>2026-10-03 07:45:00</td><td>2</td></tr><tr><td>2</td><td>2</td><td>2026-08-11 10:30:00</td><td>2</td></tr><tr><td>5</td><td>2</td><td>2026-10-20 16:40:00</td><td>2</td></tr><tr><td>4</td><td>3</td><td>2026-10-15 11:15:00</td><td>1</td></tr><tr><td>6</td><td>4</td><td>2026-10-21 09:00:00</td><td>1</td></tr></tbody>
+</table>
+</div>
+
+<p>La cláusula <code>OVER</code> define la ventana: <code>PARTITION BY</code> agrupa, <code>ORDER BY</code> ordena dentro del grupo y el <em>frame</em> decide qué filas entran en el cálculo.</p>
+
+<h2 id="sintaxis">Anatomía de una ventana</h2>
+<pre><code class="language-text">funcion() OVER (
+  PARTITION BY columna   -- divide el resultado en grupos
+  ORDER BY columna       -- orden interno del cálculo
+  ROWS BETWEEN ... AND ... -- frame opcional
+)</code></pre>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Función</th><th>Qué devuelve</th><th>Uso típico</th></tr></thead>
+  <tbody>
+    <tr><td><code>ROW_NUMBER()</code></td><td>1, 2, 3… sin repetir</td><td>Elegir una fila por grupo</td></tr>
+    <tr><td><code>RANK()</code></td><td>Ranking con huecos en empates</td><td>Posiciones deportivas</td></tr>
+    <tr><td><code>DENSE_RANK()</code></td><td>Ranking sin huecos</td><td>Niveles o categorías</td></tr>
+    <tr><td><code>LAG()</code>, <code>LEAD()</code></td><td>Valor anterior o siguiente</td><td>Comparar movimientos</td></tr>
+    <tr><td><code>SUM() OVER</code></td><td>Suma acumulada o por grupo</td><td>Saldo corrido</td></tr>
+    <tr><td><code>AVG() OVER</code></td><td>Promedio móvil</td><td>Tendencia de volumen</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="row-number">ROW_NUMBER: numerar y elegir</h2>
+<pre><code class="language-sql">-- Orden de vencimiento dentro de cada componente
+SELECT
+  codigo_barras,
+  tipo_componente,
+  fecha_vencimiento,
+  ROW_NUMBER() OVER (
+    PARTITION BY tipo_componente
+    ORDER BY fecha_vencimiento ASC, id_unidad ASC
+  ) AS orden_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+ORDER BY tipo_componente, orden_vencimiento;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>codigo_barras</th><th>tipo_componente</th><th>fecha_vencimiento</th><th>orden_vencimiento</th></tr></thead>
+  <tbody><tr><td>ST-2026-0001</td><td>sangre_total</td><td>2026-11-25</td><td>1</td></tr><tr><td>GR-2026-0003</td><td>globulos_rojos</td><td>2026-09-28</td><td>1</td></tr><tr><td>PL-2026-0002</td><td>plasma</td><td>2027-08-17</td><td>1</td></tr><tr><td>PL-2026-0003</td><td>plasma</td><td>2027-09-25</td><td>2</td></tr><tr><td>PL-2026-0004</td><td>plasma</td><td>2027-10-14</td><td>3</td></tr><tr><td>CR-2026-0001</td><td>crioprecipitado</td><td>2027-09-01</td><td>1</td></tr></tbody>
+</table>
+</div>
+
+<p>Para quedarte con la primera de cada grupo, calcula el número en una CTE y filtra después. No puedes usar una función de ventana directamente en <code>WHERE</code>, porque el filtro ocurre antes de que la ventana se calcule.</p>
+<pre><code class="language-sql">WITH ranked AS (
+  SELECT
+    codigo_barras,
+    tipo_componente,
+    fecha_vencimiento,
+    ROW_NUMBER() OVER (
+      PARTITION BY tipo_componente
+      ORDER BY fecha_vencimiento ASC
+    ) AS rn
+  FROM unidades_sangre
+  WHERE estado = 'disponible'
+)
+SELECT codigo_barras, tipo_componente, fecha_vencimiento
+FROM ranked
+WHERE rn = 1
+ORDER BY fecha_vencimiento;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>codigo_barras</th><th>tipo_componente</th><th>fecha_vencimiento</th></tr></thead>
+  <tbody><tr><td>GR-2026-0003</td><td>globulos_rojos</td><td>2026-09-28</td></tr><tr><td>ST-2026-0001</td><td>sangre_total</td><td>2026-11-25</td></tr><tr><td>PL-2026-0002</td><td>plasma</td><td>2027-08-17</td></tr><tr><td>CR-2026-0001</td><td>crioprecipitado</td><td>2027-09-01</td></tr></tbody>
+</table>
+</div>
+
+
+<h2 id="rank">RANK y DENSE_RANK: empates</h2>
+<pre><code class="language-sql">SELECT
+  tipo_componente,
+  codigo_barras,
+  volumen_ml,
+  RANK() OVER (PARTITION BY tipo_componente ORDER BY volumen_ml DESC) AS rank_con_huecos,
+  DENSE_RANK() OVER (PARTITION BY tipo_componente ORDER BY volumen_ml DESC) AS rank_sin_huecos
+FROM unidades_sangre
+ORDER BY tipo_componente, rank_con_huecos;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>tipo_componente</th><th>codigo_barras</th><th>volumen_ml</th><th>rank_con_huecos</th><th>rank_sin_huecos</th></tr></thead>
+  <tbody><tr><td>sangre_total</td><td>ST-2026-0001</td><td>450</td><td>1</td><td>1</td></tr><tr><td>globulos_rojos</td><td>GR-2026-0002</td><td>300</td><td>1</td><td>1</td></tr><tr><td>globulos_rojos</td><td>GR-2026-0004</td><td>290</td><td>2</td><td>2</td></tr><tr><td>globulos_rojos</td><td>GR-2026-0005</td><td>285</td><td>3</td><td>3</td></tr><tr><td>globulos_rojos</td><td>GR-2026-0001</td><td>280</td><td>4</td><td>4</td></tr><tr><td>globulos_rojos</td><td>GR-2026-0006</td><td>275</td><td>5</td><td>5</td></tr><tr><td>globulos_rojos</td><td>GR-2026-0003</td><td>270</td><td>6</td><td>6</td></tr><tr><td>plasma</td><td>PL-2026-0004</td><td>225</td><td>1</td><td>1</td></tr><tr><td>plasma</td><td>PL-2026-0001</td><td>220</td><td>2</td><td>2</td></tr><tr><td>plasma</td><td>PL-2026-0003</td><td>215</td><td>3</td><td>3</td></tr><tr><td>plasma</td><td>PL-2026-0002</td><td>210</td><td>4</td><td>4</td></tr><tr><td>plaquetas</td><td>PQ-2026-0002</td><td>190</td><td>1</td><td>1</td></tr><tr><td>plaquetas</td><td>PQ-2026-0001</td><td>180</td><td>2</td><td>2</td></tr><tr><td>crioprecipitado</td><td>CR-2026-0001</td><td>60</td><td>1</td><td>1</td></tr></tbody>
+</table>
+</div>
+
+<p>Si dos filas empatan en el primer lugar, <code>RANK()</code> salta al 3 y <code>DENSE_RANK()</code> continúa en 2. <code>ROW_NUMBER()</code> siempre da números distintos, aunque el empate sea real; por eso necesita un desempate explícito.</p>
+
+<h2 id="lag">LAG y LEAD: mirar la fila vecina</h2>
+<pre><code class="language-sql">SELECT
+  id_unidad,
+  fecha_movimiento,
+  tipo_movimiento,
+  LAG(tipo_movimiento) OVER (
+    PARTITION BY id_unidad
+    ORDER BY fecha_movimiento
+  ) AS movimiento_anterior,
+  LEAD(tipo_movimiento) OVER (
+    PARTITION BY id_unidad
+    ORDER BY fecha_movimiento
+  ) AS movimiento_siguiente
+FROM movimientos_inventario
+ORDER BY id_unidad, fecha_movimiento;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_unidad</th><th>fecha_movimiento</th><th>tipo_movimiento</th><th>movimiento_anterior</th><th>movimiento_siguiente</th></tr></thead>
+  <tbody><tr><td>1</td><td>2026-08-03 12:30:00</td><td>entrada</td><td><em>NULL</em></td><td>salida</td></tr><tr><td>1</td><td>2026-08-04 09:20:00</td><td>salida</td><td>entrada</td><td><em>NULL</em></td></tr><tr><td>2</td><td>2026-08-03 12:30:00</td><td>entrada</td><td><em>NULL</em></td><td>salida</td></tr><tr><td>2</td><td>2026-08-04 09:20:00</td><td>salida</td><td>entrada</td><td><em>NULL</em></td></tr><tr><td>3</td><td>2026-08-10 13:20:00</td><td>entrada</td><td><em>NULL</em></td><td>salida</td></tr><tr><td>3</td><td>2026-08-11 12:00:00</td><td>salida</td><td>entrada</td><td><em>NULL</em></td></tr><tr><td>4</td><td>2026-08-10 13:20:00</td><td>entrada</td><td><em>NULL</em></td><td>descarte</td></tr><tr><td>4</td><td>2026-08-11 08:00:00</td><td>descarte</td><td>entrada</td><td><em>NULL</em></td></tr><tr><td>9</td><td>2026-10-20 16:45:00</td><td>reserva</td><td><em>NULL</em></td><td><em>NULL</em></td></tr><tr><td>11</td><td>2026-10-03 08:10:00</td><td>salida</td><td><em>NULL</em></td><td><em>NULL</em></td></tr><tr><td>12</td><td>2026-10-03 08:10:00</td><td>salida</td><td><em>NULL</em></td><td><em>NULL</em></td></tr><tr><td>13</td><td>2026-10-14 12:00:00</td><td>entrada</td><td><em>NULL</em></td><td><em>NULL</em></td></tr><tr><td>14</td><td>2026-10-14 12:00:00</td><td>entrada</td><td><em>NULL</em></td><td><em>NULL</em></td></tr></tbody>
+</table>
+</div>
+
+<p>La primera fila de cada unidad tiene <code>NULL</code> en <code>movimiento_anterior</code>: no hay fila previa. Ese <code>NULL</code> es información, no un error. <code>LAG(columna, 1, 'sin_dato')</code> permite reemplazarlo.</p>
+
+<h2 id="acumulado">Acumulados y promedios móviles</h2>
+<pre><code class="language-sql">-- Entradas acumuladas por unidad a lo largo del tiempo
+SELECT
+  id_unidad,
+  fecha_movimiento,
+  tipo_movimiento,
+  SUM(CASE WHEN tipo_movimiento = 'entrada' THEN 1 ELSE 0 END) OVER (
+    PARTITION BY id_unidad
+    ORDER BY fecha_movimiento
+    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+  ) AS entradas_acumuladas
+FROM movimientos_inventario
+ORDER BY id_unidad, fecha_movimiento;
+
+-- Promedio móvil de tres extracciones
+SELECT
+  id_unidad,
+  fecha_extraccion,
+  volumen_ml,
+  ROUND(AVG(volumen_ml) OVER (
+    ORDER BY fecha_extraccion
+    ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+  ), 2) AS promedio_movil_3
+FROM unidades_sangre
+ORDER BY fecha_extraccion;</code></pre>
+<p class="result-label">Salida: entradas acumuladas</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_unidad</th><th>fecha_movimiento</th><th>tipo_movimiento</th><th>entradas_acumuladas</th></tr></thead>
+  <tbody><tr><td>1</td><td>2026-08-03 12:30:00</td><td>entrada</td><td>1</td></tr><tr><td>1</td><td>2026-08-04 09:20:00</td><td>salida</td><td>1</td></tr><tr><td>2</td><td>2026-08-03 12:30:00</td><td>entrada</td><td>1</td></tr><tr><td>2</td><td>2026-08-04 09:20:00</td><td>salida</td><td>1</td></tr><tr><td>3</td><td>2026-08-10 13:20:00</td><td>entrada</td><td>1</td></tr><tr><td>3</td><td>2026-08-11 12:00:00</td><td>salida</td><td>1</td></tr><tr><td>4</td><td>2026-08-10 13:20:00</td><td>entrada</td><td>1</td></tr><tr><td>4</td><td>2026-08-11 08:00:00</td><td>descarte</td><td>1</td></tr><tr><td>9</td><td>2026-10-20 16:45:00</td><td>reserva</td><td>0</td></tr><tr><td>11</td><td>2026-10-03 08:10:00</td><td>salida</td><td>0</td></tr><tr><td>12</td><td>2026-10-03 08:10:00</td><td>salida</td><td>0</td></tr><tr><td>13</td><td>2026-10-14 12:00:00</td><td>entrada</td><td>1</td></tr><tr><td>14</td><td>2026-10-14 12:00:00</td><td>entrada</td><td>1</td></tr></tbody>
+</table>
+</div>
+<p class="result-label">Salida: promedio móvil de tres extracciones</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_unidad</th><th>fecha_extraccion</th><th>volumen_ml</th><th>promedio_movil_3</th></tr></thead>
+  <tbody><tr><td>1</td><td>2026-08-03</td><td>280</td><td>280.00</td></tr><tr><td>2</td><td>2026-08-03</td><td>220</td><td>250.00</td></tr><tr><td>3</td><td>2026-08-10</td><td>300</td><td>266.67</td></tr><tr><td>4</td><td>2026-08-10</td><td>180</td><td>233.33</td></tr><tr><td>5</td><td>2026-08-17</td><td>270</td><td>250.00</td></tr><tr><td>6</td><td>2026-08-17</td><td>210</td><td>220.00</td></tr><tr><td>7</td><td>2026-09-01</td><td>290</td><td>256.67</td></tr><tr><td>8</td><td>2026-09-01</td><td>60</td><td>186.67</td></tr><tr><td>9</td><td>2026-09-25</td><td>285</td><td>211.67</td></tr><tr><td>10</td><td>2026-09-25</td><td>215</td><td>186.67</td></tr><tr><td>11</td><td>2026-10-02</td><td>275</td><td>258.33</td></tr><tr><td>12</td><td>2026-10-02</td><td>190</td><td>226.67</td></tr><tr><td>13</td><td>2026-10-14</td><td>450</td><td>305.00</td></tr><tr><td>14</td><td>2026-10-14</td><td>225</td><td>288.33</td></tr></tbody>
+</table>
+</div>
+
+<p>Sin <code>ORDER BY</code> dentro de <code>OVER</code>, el acumulado se calcula sobre toda la partición. Con <code>ORDER BY</code>, el frame por defecto es desde el inicio hasta la fila actual. Escríbelo de forma explícita cuando el resultado dependa del frame.</p>
+
+<h2 id="top-n">Top N por grupo</h2>
+<pre><code class="language-sql">-- Las dos unidades de mayor volumen por componente
+WITH ranked AS (
+  SELECT
+    tipo_componente,
+    codigo_barras,
+    volumen_ml,
+    ROW_NUMBER() OVER (
+      PARTITION BY tipo_componente
+      ORDER BY volumen_ml DESC, id_unidad ASC
+    ) AS rn
+  FROM unidades_sangre
+)
+SELECT tipo_componente, codigo_barras, volumen_ml
+FROM ranked
+WHERE rn &lt;= 2
+ORDER BY tipo_componente, rn;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>tipo_componente</th><th>codigo_barras</th><th>volumen_ml</th></tr></thead>
+  <tbody><tr><td>sangre_total</td><td>ST-2026-0001</td><td>450</td></tr><tr><td>globulos_rojos</td><td>GR-2026-0002</td><td>300</td></tr><tr><td>globulos_rojos</td><td>GR-2026-0004</td><td>290</td></tr><tr><td>plasma</td><td>PL-2026-0004</td><td>225</td></tr><tr><td>plasma</td><td>PL-2026-0001</td><td>220</td></tr><tr><td>plaquetas</td><td>PQ-2026-0002</td><td>190</td></tr><tr><td>plaquetas</td><td>PQ-2026-0001</td><td>180</td></tr><tr><td>crioprecipitado</td><td>CR-2026-0001</td><td>60</td></tr></tbody>
+</table>
+</div>
+
+
+<div class="callout callout--note">
+  <p class="callout__label">Ventana frente a GROUP BY</p>
+  <p>Si la pregunta es «¿cuánto hay por componente?», usa <code>GROUP BY</code>. Si es «¿cada unidad y cuánto representa del total de su componente?», usa una ventana. Muchas consultas necesitan las dos cosas en pasos distintos.</p>
+</div>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>«¿Cuál es la unidad que vence primero de cada componente?» es un <code>ROW_NUMBER</code> por componente. «¿Cuál fue el movimiento anterior de esta unidad?» es un <code>LAG</code>. «¿Cuántas entradas lleva acumuladas?» es un <code>SUM</code> con frame. Tres preguntas de operación, tres ventanas.</p>
+</div>
+
+<h2 id="practica">Práctica</h2>
+<pre><code class="language-sql">-- 1. Ranking de solicitudes por antigüedad dentro de cada prioridad
+SELECT
+  id_solicitud,
+  prioridad,
+  fecha_solicitud,
+  RANK() OVER (PARTITION BY prioridad ORDER BY fecha_solicitud) AS antiguedad
+FROM solicitudes;
+
+-- 2. Última prueba registrada por unidad
+WITH pruebas AS (
+  SELECT
+    id_unidad,
+    tipo_prueba,
+    fecha_prueba,
+    ROW_NUMBER() OVER (PARTITION BY id_unidad ORDER BY fecha_prueba DESC) AS rn
+  FROM pruebas_laboratorio
+)
+SELECT id_unidad, tipo_prueba, fecha_prueba
+FROM pruebas WHERE rn = 1;
+
+-- 3. Porcentaje del volumen total que aporta cada unidad
+SELECT
+  codigo_barras,
+  volumen_ml,
+  ROUND(volumen_ml / SUM(volumen_ml) OVER () * 100, 2) AS pct_total
+FROM unidades_sangre
+ORDER BY pct_total DESC;</code></pre>

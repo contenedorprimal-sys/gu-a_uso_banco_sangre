@@ -1,0 +1,158 @@
+<h2 id="vista">Una vista es una consulta con nombre</h2>
+<p>Una vista (<code>VIEW</code>) guarda una consulta, no una copia de los datos. Cada vez que la consultas, MySQL ejecuta la definición contra las tablas actuales. Sirve para reutilizar lógica, simplificar joins y exponer solo una parte de la información.</p>
+<pre><code class="language-sql">CREATE OR REPLACE VIEW vista_unidades_disponibles AS
+SELECT
+  u.id_unidad,
+  u.codigo_barras,
+  u.tipo_componente,
+  u.grupo_abo,
+  u.factor_rh,
+  u.fecha_vencimiento,
+  u.ubicacion,
+  d.id_donacion,
+  d.fecha_donacion
+FROM unidades_sangre u
+JOIN donaciones d ON d.id_donacion = u.id_donacion
+WHERE u.estado = 'disponible';
+
+SELECT * FROM vista_unidades_disponibles
+WHERE fecha_vencimiento &lt;= DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+ORDER BY fecha_vencimiento;</code></pre>
+<p class="result-label">Salida con la fecha de la demo</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_unidad</th><th>codigo_barras</th><th>tipo_componente</th><th>grupo_abo</th><th>factor_rh</th><th>fecha_vencimiento</th><th>ubicacion</th><th>id_donacion</th><th>fecha_donacion</th></tr></thead>
+  <tbody><tr><td>5</td><td>GR-2026-0003</td><td>globulos_rojos</td><td>B</td><td>-</td><td>2026-09-28</td><td>Refrigerador 1</td><td>3</td><td>2026-08-17 08:45:00</td></tr></tbody>
+</table>
+</div>
+
+<p>La vista no almacena filas: si una unidad cambia de estado, la próxima consulta ya no la muestra. Esa es su ventaja y su límite.</p>
+
+<h2 id="vista-uso">Para qué sirve y qué no resuelve</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Ventaja</th><th>Límite</th></tr></thead>
+  <tbody>
+    <tr><td>Reutiliza una consulta compleja sin repetirla.</td><td>No guarda datos ni resultados.</td></tr>
+    <tr><td>Oculta columnas sensibles y simplifica permisos.</td><td>No sustituye una política de acceso bien diseñada.</td></tr>
+    <tr><td>Da un nombre de negocio a un join.</td><td>Un join pesado sigue pesando cada vez que se consulta.</td></tr>
+    <tr><td>Permite cambiar la definición sin tocar a la aplicación.</td><td>No siempre es actualizable; las agregaciones y uniones complejas no lo son.</td></tr>
+  </tbody>
+</table>
+</div>
+<pre><code class="language-sql">-- Una vista de trazabilidad: una fila por unidad despachada
+CREATE OR REPLACE VIEW vista_trazabilidad_despachos AS
+SELECT
+  u.codigo_barras,
+  u.tipo_componente,
+  u.grupo_abo,
+  u.factor_rh,
+  d.fecha_donacion,
+  de.fecha_despacho,
+  de.destino,
+  s.id_solicitud,
+  h.nombre AS hospital
+FROM unidades_sangre u
+JOIN donaciones d ON d.id_donacion = u.id_donacion
+JOIN despacho_detalle dd ON dd.id_unidad = u.id_unidad
+JOIN despachos de ON de.id_despacho = dd.id_despacho
+JOIN solicitudes s ON s.id_solicitud = de.id_solicitud
+JOIN hospitales h ON h.id_hospital = s.id_hospital;</code></pre>
+<p>Antes de crearla, prueba el <code>SELECT</code> solo. Una vista con un join mal escrito esconde el error detrás de un nombre bonito.</p>
+
+<h2 id="transaccion">Transacción: todo o nada</h2>
+<p>Un despacho no es un solo <code>INSERT</code>. Hay que crear la salida, unir las unidades, cambiar su estado y registrar el movimiento. Si el servidor falla a la mitad, la base no puede quedar con un despacho sin unidades o con una unidad marcada como despachada que nunca salió.</p>
+<pre><code class="language-sql">START TRANSACTION;
+
+INSERT INTO despachos (id_solicitud, responsable, destino, estado)
+VALUES (5, 'Lic. Ana Prado', 'Hospital Ángeles', 'preparando');
+
+SET @id_despacho = LAST_INSERT_ID();
+
+INSERT INTO despacho_detalle (id_despacho, id_unidad)
+VALUES (@id_despacho, 9);
+
+UPDATE unidades_sangre
+SET estado = 'despachada', ubicacion = 'Hospital Ángeles'
+WHERE id_unidad = 9
+  AND estado = 'reservada';
+
+-- Si todo salió bien:
+COMMIT;
+
+-- Si algo falló:
+-- ROLLBACK;</code></pre>
+<p>El <code>COMMIT</code> confirma; el <code>ROLLBACK</code> deshace todo lo hecho desde el <code>START TRANSACTION</code>. El <code>WHERE ... AND estado = 'reservada'</code> es una guarda: si la unidad ya no está reservada, el <code>UPDATE</code> afecta cero filas y la aplicación debe detectarlo con <code>ROW_COUNT()</code>.</p>
+
+<h2 id="acid">ACID en una frase cada uno</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Propiedad</th><th>Qué garantiza</th><th>Qué la rompe</th></tr></thead>
+  <tbody>
+    <tr><td>Atomicidad</td><td>Todo se confirma o nada se confirma.</td><td>Separar pasos en transacciones distintas.</td></tr>
+    <tr><td>Consistencia</td><td>Las restricciones se cumplen al confirmar.</td><td>Validar solo en la aplicación.</td></tr>
+    <tr><td>Aislamiento</td><td>Las transacciones concurrentes no ven estados intermedios.</td><td>Leer datos sin entender el nivel de aislamiento.</td></tr>
+    <tr><td>Durabilidad</td><td>Lo confirmado sobrevive a una caída.</td><td>Confiar en memoria sin redo log.</td></tr>
+  </tbody>
+</table>
+</div>
+<pre><code class="language-sql">-- Nivel de aislamiento por defecto en MySQL InnoDB
+SELECT @@transaction_isolation;
+
+-- Cambiarlo solo para la sesión actual
+SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>@@transaction_isolation</th></tr></thead>
+  <tbody><tr><td>REPEATABLE-READ</td></tr></tbody>
+</table>
+</div>
+
+
+<h2 id="savepoint">SAVEPOINT: deshacer una parte</h2>
+<pre><code class="language-sql">START TRANSACTION;
+
+INSERT INTO despachos (id_solicitud, responsable, destino, estado)
+VALUES (4, 'Lic. Ana Prado', 'Clínica del Valle', 'preparando');
+
+SET @id_despacho = LAST_INSERT_ID();
+
+SAVEPOINT antes_del_detalle;
+
+INSERT INTO despacho_detalle (id_despacho, id_unidad)
+VALUES (@id_despacho, 13);
+
+-- El detalle estaba mal: se deshace solo desde el savepoint
+ROLLBACK TO SAVEPOINT antes_del_detalle;
+
+-- El despacho creado antes del savepoint sigue vivo
+COMMIT;</code></pre>
+<p><code>ROLLBACK TO SAVEPOINT</code> no termina la transacción; vuelve a un punto intermedio. Para deshacer todo, usa <code>ROLLBACK</code> sin destino.</p>
+
+<div class="callout callout--warning">
+  <p class="callout__label">Transacciones cortas</p>
+  <p>Una transacción abierta retiene locks. Si incluye llamadas a una API, esperas de usuario o un <code>SELECT</code> largo, bloquea a otras operaciones. Abre, escribe, confirma; deja fuera todo lo que no sea base de datos.</p>
+</div>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>El despacho es la operación más sensible del caso: si la unidad no cambia de estado, el inventario miente; si se crea el detalle sin descabezar la solicitud, la trazabilidad se rompe. Una transacción convierte cuatro escrituras en un solo hecho verificable.</p>
+</div>
+
+<h2 id="practica">Práctica</h2>
+<pre><code class="language-sql">-- 1. Vista de solicitudes pendientes con nombre del hospital
+CREATE OR REPLACE VIEW vista_solicitudes_pendientes AS
+SELECT s.id_solicitud, h.nombre AS hospital, s.prioridad, s.fecha_solicitud
+FROM solicitudes s
+JOIN hospitales h ON h.id_hospital = s.id_hospital
+WHERE s.estado IN ('pendiente', 'parcial');
+
+-- 2. Transferencia simulada entre dos unidades: reservar y liberar
+START TRANSACTION;
+UPDATE unidades_sangre SET estado = 'reservada' WHERE id_unidad = 13;
+UPDATE unidades_sangre SET estado = 'disponible' WHERE id_unidad = 14;
+ROLLBACK;
+
+-- 3. Ver el estado final: nada cambió
+SELECT id_unidad, estado FROM unidades_sangre WHERE id_unidad IN (13, 14);</code></pre>

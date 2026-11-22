@@ -1,0 +1,143 @@
+<h2 id="where">WHERE: quedarse con las filas correctas</h2>
+<p><code>WHERE</code> evalúa una condición por fila. Solo las filas que devuelven verdadero pasan a la siguiente etapa. Si la condición produce <code>NULL</code>, la fila no pasa: en SQL, <code>NULL</code> no es verdadero ni falso, es ausencia de valor.</p>
+<pre><code class="language-sql">-- Unidades disponibles del grupo O+
+SELECT codigo_barras, tipo_componente, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+  AND grupo_abo = 'O'
+  AND factor_rh = '+'
+ORDER BY fecha_vencimiento;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>codigo_barras</th><th>tipo_componente</th><th>fecha_vencimiento</th></tr></thead>
+  <tbody><tr><td>ST-2026-0001</td><td>sangre_total</td><td>2026-11-25</td></tr><tr><td>PL-2026-0004</td><td>plasma</td><td>2027-10-14</td></tr></tbody>
+</table>
+</div>
+
+
+<h2 id="operadores">Operadores que conviene dominar</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Operador</th><th>Pregunta que responde</th><th>Ejemplo</th></tr></thead>
+  <tbody>
+    <tr><td><code>=</code>, <code>&lt;&gt;</code></td><td>¿Es igual o distinto?</td><td><code>estado &lt;&gt; 'descartada'</code></td></tr>
+    <tr><td><code>&gt;</code>, <code>&lt;</code>, <code>&gt;=</code>, <code>&lt;=</code></td><td>¿Está antes o después?</td><td><code>volumen_ml &gt;= 250</code></td></tr>
+    <tr><td><code>AND</code>, <code>OR</code>, <code>NOT</code></td><td>¿Se cumplen varias condiciones?</td><td><code>prioridad = 'urgente' AND estado = 'pendiente'</code></td></tr>
+    <tr><td><code>IN</code></td><td>¿Está en una lista?</td><td><code>tipo_componente IN ('plasma', 'plaquetas')</code></td></tr>
+    <tr><td><code>BETWEEN</code></td><td>¿Está en un rango cerrado?</td><td><code>fecha_vencimiento BETWEEN '2026-10-01' AND '2026-10-31'</code></td></tr>
+    <tr><td><code>LIKE</code></td><td>¿Coincide con un patrón?</td><td><code>correo LIKE '%@example.com'</code></td></tr>
+    <tr><td><code>IS NULL</code></td><td>¿Falta el dato?</td><td><code>observaciones IS NULL</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="logica">AND, OR y los paréntesis que salvan la consulta</h2>
+<p><code>AND</code> tiene más prioridad que <code>OR</code>. Sin paréntesis, una condición puede significar algo distinto de lo que lees.</p>
+<pre><code class="language-sql">-- MAL: interpreta (estado = 'disponible' AND grupo = 'O') OR grupo = 'A'
+SELECT codigo_barras, grupo_abo, estado
+FROM unidades_sangre
+WHERE estado = 'disponible' AND grupo_abo = 'O' OR grupo_abo = 'A';
+
+-- BIEN: unidades disponibles que sean O o A
+SELECT codigo_barras, grupo_abo, estado
+FROM unidades_sangre
+WHERE estado = 'disponible'
+  AND (grupo_abo = 'O' OR grupo_abo = 'A');</code></pre>
+<p>La segunda consulta también se escribe con <code>IN</code>, que suele ser más corta y más clara:</p>
+<pre><code class="language-sql">SELECT codigo_barras, grupo_abo, estado
+FROM unidades_sangre
+WHERE estado = 'disponible'
+  AND grupo_abo IN ('O', 'A');</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>codigo_barras</th><th>grupo_abo</th><th>estado</th></tr></thead>
+  <tbody><tr><td>ST-2026-0001</td><td>O</td><td>disponible</td></tr><tr><td>PL-2026-0003</td><td>A</td><td>disponible</td></tr><tr><td>PL-2026-0004</td><td>O</td><td>disponible</td></tr></tbody>
+</table>
+</div>
+
+
+<h2 id="null">NULL: el valor que no es cero ni cadena vacía</h2>
+<pre><code class="language-sql">-- Donantes sin correo registrado
+SELECT id_donante, nombre, apellido_paterno
+FROM donantes
+WHERE correo IS NULL;
+
+-- Donaciones sin observaciones
+SELECT id_donacion, id_donante, fecha_donacion
+FROM donaciones
+WHERE observaciones IS NULL;</code></pre>
+<p class="result-label">Salida: donantes sin correo</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_donante</th><th>nombre</th><th>apellido_paterno</th></tr></thead>
+  <tbody><tr><td colspan="3"><em>Sin filas: todos los donantes tienen correo.</em></td></tr></tbody>
+</table>
+</div>
+<p class="result-label">Salida: donaciones sin observaciones</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_donacion</th><th>id_donante</th><th>fecha_donacion</th></tr></thead>
+  <tbody><tr><td>1</td><td>1</td><td>2026-08-03 09:30:00</td></tr><tr><td>2</td><td>2</td><td>2026-08-10 10:15:00</td></tr><tr><td>4</td><td>4</td><td>2026-09-01 11:00:00</td></tr><tr><td>7</td><td>7</td><td>2026-10-02 08:30:00</td></tr></tbody>
+</table>
+</div>
+
+<p><code>NULL = NULL</code> no devuelve verdadero; devuelve <code>NULL</code>. Por eso se usa <code>IS NULL</code>. Y cuidado con <code>NOT IN</code>: si la lista contiene un <code>NULL</code>, el resultado puede quedar vacío sin que sea un error de sintaxis.</p>
+
+<h2 id="order">ORDER BY: el orden es parte de la respuesta</h2>
+<pre><code class="language-sql">-- Primero las urgentes; dentro de cada prioridad, las más antiguas
+SELECT id_solicitud, id_hospital, prioridad, fecha_solicitud, estado
+FROM solicitudes
+WHERE estado IN ('pendiente', 'parcial')
+ORDER BY FIELD(prioridad, 'urgente', 'programada'), fecha_solicitud ASC;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_solicitud</th><th>id_hospital</th><th>prioridad</th><th>fecha_solicitud</th><th>estado</th></tr></thead>
+  <tbody><tr><td>3</td><td>1</td><td>urgente</td><td>2026-10-03 07:45:00</td><td>parcial</td></tr><tr><td>5</td><td>2</td><td>urgente</td><td>2026-10-20 16:40:00</td><td>pendiente</td></tr><tr><td>4</td><td>3</td><td>programada</td><td>2026-10-15 11:15:00</td><td>pendiente</td></tr></tbody>
+</table>
+</div>
+
+<p><code>FIELD</code> fija el orden que queremos. No uses <code>ORDER BY prioridad DESC</code> a ciegas: las columnas <code>ENUM</code> se ordenan por su posición interna, no por el texto, y el resultado puede ser el contrario del esperado.</p>
+<p><code>ASC</code> es ascendente y es el valor por defecto; <code>DESC</code> invierte. Puedes ordenar por varias columnas y por expresiones. El orden solo es estable si incluyes un criterio que desempate, como <code>id_solicitud</code>.</p>
+<pre><code class="language-sql">-- Orden determinista para paginar
+SELECT id_unidad, codigo_barras, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+ORDER BY fecha_vencimiento ASC, id_unidad ASC
+LIMIT 2 OFFSET 2;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_unidad</th><th>codigo_barras</th><th>fecha_vencimiento</th></tr></thead>
+  <tbody><tr><td>6</td><td>PL-2026-0002</td><td>2027-08-17</td></tr><tr><td>8</td><td>CR-2026-0001</td><td>2027-09-01</td></tr></tbody>
+</table>
+</div>
+
+<p><code>LIMIT 2 OFFSET 2</code> salta dos filas y devuelve las dos siguientes: la página 2 de un tamaño de página 2. Sin un <code>ORDER BY</code> completo, la página 2 puede repetir o perder filas entre ejecuciones.</p>
+
+<div class="callout callout--warning">
+  <p class="callout__label">Funciones sobre columnas indexadas</p>
+  <p><code>WHERE YEAR(fecha_vencimiento) = 2026</code> obliga a calcular la función en cada fila y suele impedir el uso del índice. Prefiere un rango: <code>fecha_vencimiento &gt;= '2026-01-01' AND fecha_vencimiento &lt; '2027-01-01'</code>.</p>
+</div>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>La consulta más repetida del mostrador es: unidades disponibles de un grupo y Rh, que venzan en los próximos treinta días, ordenadas por vencimiento. Es un <code>WHERE</code> con igualdad, rango y orden; el índice <code>idx_unidades_disponibilidad</code> está pensado exactamente para ella.</p>
+</div>
+
+<pre><code class="language-sql">SELECT codigo_barras, tipo_componente, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+  AND grupo_abo = 'O'
+  AND factor_rh = '+'
+  AND fecha_vencimiento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+ORDER BY fecha_vencimiento ASC, id_unidad ASC;</code></pre>
+<p class="result-label">Salida con la fecha de la demo</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>codigo_barras</th><th>tipo_componente</th><th>fecha_vencimiento</th></tr></thead>
+  <tbody><tr><td>ST-2026-0001</td><td>sangre_total</td><td>2026-11-25</td></tr></tbody>
+</table>
+</div>

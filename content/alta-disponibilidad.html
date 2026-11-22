@@ -1,0 +1,96 @@
+<h2 id="definicion">Qué significa «alta disponibilidad»</h2>
+<p>No significa «nunca falla». Ningún sistema es perfecto. Significa diseñar para que, cuando algo falle, afecte lo menos posible. La disponibilidad se planea desde la arquitectura, no se agrega como parche después de un incidente.</p>
+<p>Y no es lo mismo que tener respaldos: un respaldo protege los datos ante una pérdida; la alta disponibilidad protege el servicio en tiempo real.</p>
+
+<h2 id="nueves">Los nueves: de porcentaje a horas</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Disponibilidad</th><th>Caída al año</th><th>Caída al mes</th></tr></thead>
+  <tbody>
+    <tr><td>99 % («two nines»)</td><td>~3.65 días</td><td>~7.3 horas</td></tr>
+    <tr><td>99.9 % («three nines»)</td><td>~8.77 horas</td><td>~43.8 minutos</td></tr>
+    <tr><td>99.99 % («four nines»)</td><td>~52.6 minutos</td><td>~4.4 minutos</td></tr>
+    <tr><td>99.999 % («five nines»)</td><td>~5.26 minutos</td><td>~26.3 segundos</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Un año tiene <strong>525,600 minutos</strong>. La fórmula es:</p>
+<div class="formula">
+  <p><strong>% disponibilidad = (minutos totales − minutos caídos) / minutos totales × 100</strong></p>
+</div>
+
+<h2 id="ejemplo">Ejemplo resuelto</h2>
+<p>Un sistema tuvo 2 horas con 15 minutos de inactividad: 135 minutos.</p>
+<pre><code class="language-sql">SELECT ROUND(((525600 - 135) / 525600) * 100, 4) AS disponibilidad;</code></pre>
+<p>Resultado: <strong>99.9743 %</strong>. No llega a 99.99 % (que permite 52.6 minutos), así que se clasifica como 99.9 % («tres nueves»). Ojo: 135 minutos está muy por encima de los 52.6 minutos de four nines.</p>
+<pre><code class="language-sql">-- Con variables, como se pide en el examen
+SET @total = 525600;
+SET @caida = 135;
+SELECT ROUND((@total - @caida) / @total * 100, 4) AS pct;
+
+-- Otros escenarios
+SELECT ROUND((525600 - 270) / 525600 * 100, 4) AS pct_4h30;  -- 99.9486
+SELECT ROUND((525600 - 50)  / 525600 * 100, 4) AS pct_50min; -- 99.9905
+SELECT ROUND((525600 - 480) / 525600 * 100, 4) AS pct_8h;    -- 99.9087</code></pre>
+
+<h2 id="rto-rpo">RTO y RPO: los dos números que definen la arquitectura</h2>
+<div class="grid-2">
+  <div class="mini-card">
+    <h3>RTO</h3>
+    <p><strong>Recovery Time Objective.</strong> Cuánto tiempo, como máximo, se tolera que el sistema esté fuera de servicio antes de que el negocio se vea afectado.</p>
+  </div>
+  <div class="mini-card">
+    <h3>RPO</h3>
+    <p><strong>Recovery Point Objective.</strong> Cuánta información se tolera perder, medido en tiempo: «no más de 15 minutos de datos».</p>
+  </div>
+</div>
+<p>Un RTO y un RPO muy exigentes requieren clustering y replicación. Objetivos más relajados pueden resolverse con buenos respaldos.</p>
+
+<h2 id="caso-banca">Ejemplo: banca en línea</h2>
+<p>El servidor cae a las 11:00 y el último respaldo completo fue a las 5:00.</p>
+<ul>
+  <li><strong>RTO propuesto:</strong> 15–30 minutos. Cada minuto de caída cuesta dinero y confianza.</li>
+  <li><strong>RPO implícito:</strong> 6 horas. Se pueden perder hasta seis horas de transacciones confirmadas.</li>
+  <li><strong>Acción para reducir RPO:</strong> activar binlog y respaldos incrementales cada 15 minutos, además de una réplica.</li>
+</ul>
+
+<h2 id="redundancia">Redundancia: eliminar el SPOF</h2>
+<p>Un <strong>SPOF</strong> (Single Point of Failure) es un componente cuya falla tumba todo el servicio. La solución es no depender de un solo componente para nada crítico.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tipo</th><th>Ejemplo</th></tr></thead>
+  <tbody>
+    <tr><td>Hardware</td><td>Fuentes duplicadas, RAID, más de un servidor</td></tr>
+    <tr><td>Datos</td><td>Respaldo o replicación en tiempo real</td></tr>
+    <tr><td>Red</td><td>Más de una ruta entre aplicación y base</td></tr>
+  </tbody>
+</table>
+</div>
+<p>La redundancia cuesta: más servidores, más almacenamiento, más complejidad. El nivel se decide según qué tan crítico es el sistema. Un banco de sangre con cirugías en curso no es lo mismo que un blog personal.</p>
+
+<h2 id="proyecto">RTO y RPO del banco de sangre</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Objetivo</th><th>Valor</th><th>Justificación</th></tr></thead>
+  <tbody>
+    <tr><td>Disponibilidad</td><td>99.9 %</td><td>~8.77 h de caída al año; suficiente para un hospital con ventanas de mantenimiento</td></tr>
+    <tr><td>RTO</td><td>30 min</td><td>Hay cirugías y urgencias; no se puede esperar horas</td></tr>
+    <tr><td>RPO</td><td>15 min</td><td>Se tolera perder como máximo 15 minutos de capturas</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Con esos objetivos, un respaldo diario no alcanza: se necesita binlog cada 15 minutos y, para el RTO, una réplica o clúster con failover.</p>
+
+<div class="callout callout--case">
+  <p class="callout__label">Entregable de la unidad 2</p>
+  <p>Documentar un escenario de RTO/RPO propio, con justificación de negocio y una acción concreta para reducir el RPO. El README del proyecto lo hace para el banco de sangre: RTO 30 min, RPO 15 min, binlog + incremental.</p>
+</div>
+
+<h2 id="errores">Errores comunes</h2>
+<ul>
+  <li>No definir RTO/RPO explícitamente: sin objetivos no se puede saber si la arquitectura cumple.</li>
+  <li>Implementar clustering en un sistema que no lo necesita: complejidad sin beneficio.</li>
+  <li>Ignorar el SPOF fuera de la base de datos: un clúster robusto detrás de un solo servidor web sigue cayéndose.</li>
+  <li>Confundir respaldo con alta disponibilidad.</li>
+  <li>Calcular los nueves con el mes en vez del año (o mezclar unidades).</li>
+</ul>

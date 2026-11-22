@@ -1,0 +1,117 @@
+<h2 id="enunciado">Del enunciado al modelo</h2>
+<p>El proyecto pide gestionar «el ciclo completo de la sangre»: registro de donantes, donaciones, unidades derivadas, pruebas de laboratorio, solicitudes de hospitales, despachos e inventario con trazabilidad. La tentación es hacer una tabla gigante. La pregunta correcta es: <strong>¿qué hechos distintos ocurren en este proceso?</strong></p>
+<ol>
+  <li>Una persona se registra como donante.</li>
+  <li>Esa persona dona un día concreto.</li>
+  <li>De esa donación se derivan uno o varios componentes.</li>
+  <li>A cada componente se le hacen pruebas.</li>
+  <li>Un hospital solicita componentes.</li>
+  <li>Se prepara un despacho y se entregan unidades concretas.</li>
+  <li>Todo cambio de estado se registra para trazabilidad.</li>
+</ol>
+<p>Cada hecho es una tabla. Las relaciones entre hechos son llaves foráneas.</p>
+
+<h2 id="entidades">Las entidades del caso</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Entidad</th><th>Representa</th><th>Clave</th></tr></thead>
+  <tbody>
+    <tr><td><code>donantes</code></td><td>Persona que dona</td><td><code>id_donante</code></td></tr>
+    <tr><td><code>donaciones</code></td><td>Extracción en una fecha</td><td><code>id_donacion</code></td></tr>
+    <tr><td><code>unidades_sangre</code></td><td>Componente derivado y trazable</td><td><code>id_unidad</code></td></tr>
+    <tr><td><code>pruebas_laboratorio</code></td><td>Resultado de tamizaje</td><td><code>id_prueba</code></td></tr>
+    <tr><td><code>hospitales</code></td><td>Institución solicitante</td><td><code>id_hospital</code></td></tr>
+    <tr><td><code>solicitudes</code></td><td>Pedido de componentes</td><td><code>id_solicitud</code></td></tr>
+    <tr><td><code>solicitud_detalle</code></td><td>Componente y cantidad pedidos</td><td><code>id_detalle</code></td></tr>
+    <tr><td><code>despachos</code></td><td>Salida hacia un hospital</td><td><code>id_despacho</code></td></tr>
+    <tr><td><code>despacho_detalle</code></td><td>Unidad concreta entregada</td><td><code>id_despacho + id_unidad</code></td></tr>
+    <tr><td><code>movimientos_inventario</code></td><td>Historial de cambios de estado</td><td><code>id_movimiento + fecha</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="relaciones">Relaciones que hay que leer en voz alta</h2>
+<div class="ascii">
+<pre>donantes 1 ──── N donaciones 1 ──── N unidades_sangre 1 ──── N pruebas_laboratorio
+                                      │
+                                      │ N
+                                      └──── N despacho_detalle N ──── 1 despachos
+                                                                        │
+                                                                        │ N
+                                                                        1 solicitudes
+                                                                        │
+                                                                        │ N
+                                                                        1 solicitud_detalle
+hospitales 1 ──── N solicitudes
+unidades_sangre 1 ──── N movimientos_inventario</pre>
+</div>
+<ul>
+  <li>Un donante puede tener muchas donaciones; una donación pertenece a un donante.</li>
+  <li>Una donación puede producir varias unidades; una unidad pertenece a una donación.</li>
+  <li>Una unidad puede tener muchas pruebas; una prueba pertenece a una unidad.</li>
+  <li>Una solicitud tiene varios detalles; cada detalle es un componente pedido.</li>
+  <li>Un despacho puede incluir varias unidades; una unidad se despacha una sola vez.</li>
+</ul>
+
+<h2 id="decisiones">Cinco decisiones de diseño</h2>
+<h3>1. Donación y unidad no son la misma tabla</h3>
+<p>Una donación de sangre total puede separarse en glóbulos rojos, plasma y plaquetas. Cada componente tiene volumen, vencimiento y estado propios. Si todo estuviera en una tabla, no podrías despachar el plasma sin «despachar» también los glóbulos rojos.</p>
+<h3>2. El estado vive en la unidad, no en el donante</h3>
+<p>El donante está sano; la unidad puede estar disponible, reservada, despachada, vencida o descartada. Son cosas distintas.</p>
+<h3>3. La trazabilidad es una tabla, no una columna</h3>
+<p>Guardar solo el estado actual responde «¿dónde está?», pero no «¿quién la movió y cuándo?». <code>movimientos_inventario</code> y <code>auditoria_unidades</code> responden la segunda pregunta.</p>
+<h3>4. Datos personales separados de datos clínicos</h3>
+<p><code>donantes</code> contiene contacto e identificación. Las pruebas y unidades no necesitan el correo del donante. Esa separación permite dar acceso a recepción sin exponer datos personales.</p>
+<h3>5. La tabla particionada pierde la FK</h3>
+<p><code>movimientos_inventario</code> crece sin parar y se particiona por año. MySQL exige que la columna de partición esté en la PK y prohíbe FKs en tablas particionadas. La integridad se mantiene con la aplicación y la auditoría; es un trade-off documentado.</p>
+
+<h2 id="normalizacion">Normalización sin dogma</h2>
+<p>La tercera forma normal (3FN) evita dependencias transitivas: cada dato no clave depende de la clave, de toda la clave y nada más que de la clave. En el caso:</p>
+<ul>
+  <li>El nombre del hospital no se repite en cada solicitud: se guarda una vez en <code>hospitales</code>.</li>
+  <li>El tipo de componente no se repite como texto libre: se usa un <code>ENUM</code> controlado.</li>
+  <li>El detalle de una solicitud no repite la fecha de la solicitud: se obtiene con un JOIN.</li>
+</ul>
+<p>Normalizar no significa nunca duplicar. En analítica a veces se desnormaliza a propósito para evitar JOINs costosos. En un sistema transaccional como este, la integridad pesa más.</p>
+
+<h2 id="esquema">El esquema completo</h2>
+<p>El script <code>00_esquema.sql</code> crea 12 tablas, una vista y 19 índices. Las tablas centrales son:</p>
+<pre><code class="language-sql">CREATE TABLE unidades_sangre (
+  id_unidad         INT AUTO_INCREMENT PRIMARY KEY,
+  id_donacion       INT NOT NULL,
+  codigo_barras     VARCHAR(40) NOT NULL UNIQUE,
+  tipo_componente   ENUM('sangre_total','globulos_rojos','plasma','plaquetas','crioprecipitado') NOT NULL,
+  grupo_abo         ENUM('A','B','AB','O') NOT NULL,
+  factor_rh         ENUM('+','-') NOT NULL,
+  volumen_ml        INT NOT NULL,
+  fecha_extraccion  DATE NOT NULL,
+  fecha_vencimiento DATE NOT NULL,
+  estado            ENUM('disponible','reservada','despachada','vencida','descartada')
+                    NOT NULL DEFAULT 'disponible',
+  ubicacion         VARCHAR(40),
+  CONSTRAINT fk_unidad_donacion
+    FOREIGN KEY (id_donacion) REFERENCES donaciones (id_donacion)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT chk_unidad_volumen CHECK (volumen_ml &gt; 0),
+  CONSTRAINT chk_unidad_fechas CHECK (fecha_vencimiento &gt;= fecha_extraccion)
+) ENGINE=InnoDB;</code></pre>
+<pre><code class="language-sql">CREATE TABLE despacho_detalle (
+  id_despacho INT NOT NULL,
+  id_unidad   INT NOT NULL,
+  PRIMARY KEY (id_despacho, id_unidad),
+  CONSTRAINT fk_despacho_detalle_despacho
+    FOREIGN KEY (id_despacho) REFERENCES despachos (id_despacho)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_despacho_detalle_unidad
+    FOREIGN KEY (id_unidad) REFERENCES unidades_sangre (id_unidad)
+    ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB;</code></pre>
+<p>La PK compuesta de <code>despacho_detalle</code> impide que la misma unidad se incluya dos veces en el mismo despacho. Es una regla de negocio expresada en el esquema.</p>
+
+<div class="callout callout--case">
+  <p class="callout__label">Entregable de la unidad 1</p>
+  <p>Justificar MySQL/InnoDB, documentar qué rol de DBA asume cada integrante, crear la base y un esquema inicial de al menos cinco tablas relacionadas. Este proyecto entrega doce.</p>
+</div>
+
+<h2 id="diagrama">Cómo dibujarlo en la demo</h2>
+<p>No necesitas una herramienta cara. Un diagrama ASCII como el de arriba, o el <em>Reverse Engineer</em> de MySQL Workbench (<em>Database → Reverse Engineer</em>), basta para explicar el modelo en dos minutos.</p>

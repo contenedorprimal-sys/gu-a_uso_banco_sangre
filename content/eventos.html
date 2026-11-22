@@ -1,0 +1,120 @@
+<h2 id="que-es">Tareas que no deberían depender de la memoria</h2>
+<p>Un respaldo olvidado, un log que crece sin control, unidades vencidas que siguen marcadas como disponibles: son incidentes evitables. El <strong>Event Scheduler</strong> de MySQL ejecuta SQL en un horario definido, dentro del servidor, sin depender de un cron externo.</p>
+<p>No reemplaza al DBA: lo libera de lo repetitivo para que se ocupe de lo que requiere criterio.</p>
+
+<h2 id="activar">Primero, encender el programador</h2>
+<pre><code class="language-sql">SET GLOBAL event_scheduler = ON;
+SHOW VARIABLES LIKE 'event_scheduler';</code></pre>
+<p>Si el valor es <code>OFF</code>, el evento existe pero nunca corre. Este es el primer error de examen: crear el evento y no encender el scheduler.</p>
+
+<h2 id="crear">Crear un evento</h2>
+<pre><code class="language-sql">CREATE EVENT ev_marcar_vencidas
+ON SCHEDULE EVERY 1 DAY
+STARTS (TIMESTAMP(CURRENT_DATE) + INTERVAL 1 DAY + INTERVAL 3 HOUR)
+DO
+  UPDATE unidades_sangre
+  SET estado = 'vencida'
+  WHERE estado = 'disponible'
+    AND fecha_vencimiento &lt; CURRENT_DATE;</code></pre>
+<p>Partes de la sintaxis:</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Parte</th><th>Qué hace</th></tr></thead>
+  <tbody>
+    <tr><td><code>ON SCHEDULE EVERY 1 DAY</code></td><td>Frecuencia</td></tr>
+    <tr><td><code>STARTS ...</code></td><td>Primera ejecución</td></tr>
+    <tr><td><code>DO ...</code></td><td>La sentencia o bloque que ejecuta</td></tr>
+    <tr><td><code>ENABLE / DISABLE</code></td><td>Activar o pausar sin borrar</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="varios">Varios eventos del proyecto</h2>
+<pre><code class="language-sql">-- Registrar el movimiento de vencimiento una sola vez por unidad
+CREATE EVENT ev_registrar_vencimientos
+ON SCHEDULE EVERY 1 DAY
+STARTS (TIMESTAMP(CURRENT_DATE) + INTERVAL 1 DAY + INTERVAL 4 HOUR)
+DO
+  INSERT INTO movimientos_inventario (id_unidad, tipo_movimiento, usuario, motivo)
+  SELECT u.id_unidad, 'vencimiento', 'event_scheduler', 'Marcado automático por fecha'
+  FROM unidades_sangre u
+  WHERE u.estado = 'vencida'
+    AND NOT EXISTS (
+      SELECT 1 FROM movimientos_inventario m
+      WHERE m.id_unidad = u.id_unidad
+        AND m.tipo_movimiento = 'vencimiento'
+    );
+
+-- Guardar Uptime cada hora
+CREATE EVENT ev_bitacora_uptime
+ON SCHEDULE EVERY 1 HOUR
+STARTS CURRENT_TIMESTAMP
+DO
+  INSERT INTO bitacora_disponibilidad (fecha_registro, uptime_seg)
+  SELECT NOW(), VARIABLE_VALUE
+  FROM performance_schema.global_status
+  WHERE VARIABLE_NAME = 'Uptime';
+
+-- Purgar auditoría vieja cada mes
+CREATE EVENT ev_purgar_auditoria
+ON SCHEDULE EVERY 1 MONTH
+STARTS (TIMESTAMP(CURRENT_DATE) + INTERVAL 1 MONTH)
+DO
+  DELETE FROM auditoria_unidades
+  WHERE fecha &lt; NOW() - INTERVAL 12 MONTH;</code></pre>
+
+<div class="callout callout--note">
+  <p class="callout__label">Idempotencia</p>
+  <p>Un evento que se ejecuta cada día debe poder correr dos veces sin duplicar datos. Por eso <code>ev_registrar_vencimientos</code> usa <code>NOT EXISTS</code>: si ya hay un movimiento de vencimiento para esa unidad, no inserta otro.</p>
+</div>
+
+<h2 id="ver">Verificar y controlar</h2>
+<pre><code class="language-sql">SHOW EVENTS FROM banco_sangre;
+
+SELECT event_name, status, interval_value, interval_field,
+       last_executed, last_altered
+FROM information_schema.events
+WHERE event_schema = 'banco_sangre';
+
+-- Pausar sin borrar
+ALTER EVENT ev_marcar_vencidas DISABLE;
+ALTER EVENT ev_marcar_vencidas ENABLE;
+
+-- Borrar definitivamente
+DROP EVENT IF EXISTS ev_marcar_vencidas;</code></pre>
+<p><code>last_executed</code> es la evidencia de que el evento corrió. Si está en NULL o muy atrasado, algo pasa.</p>
+
+<h2 id="riesgos">Beneficios y riesgos</h2>
+<div class="grid-2">
+  <div class="mini-card">
+    <h3>Beneficios</h3>
+    <ul>
+      <li>Consistencia: siempre se ejecuta igual</li>
+      <li>Tiempo liberado para tareas de criterio</li>
+      <li>Menos dependencia de una persona</li>
+    </ul>
+  </div>
+  <div class="mini-card">
+    <h3>Riesgos</h3>
+    <ul>
+      <li>Un <code>DELETE</code> silencioso mal escrito</li>
+      <li>Un evento que falla y nadie revisa</li>
+      <li>Dos eventos que se pisan</li>
+      <li>Automatizar una tarea que requería aprobación humana</li>
+    </ul>
+  </div>
+</div>
+<p>Mitigación: revisar <code>SHOW EVENTS</code>, registrar el resultado en una tabla de bitácora, alertar si <code>last_executed</code> no avanza y probar el evento en un entorno de pruebas antes de producción.</p>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>El evento de vencimiento evita que una unidad caducada siga apareciendo como disponible. El de Uptime alimenta la bitácora de disponibilidad de la unidad 2. El de purga mantiene la auditoría manejable sin borrar evidencia reciente.</p>
+</div>
+
+<h2 id="examen">Lo que se pregunta en el examen</h2>
+<ul>
+  <li>Crear la tabla <code>monitoreo_disponibilidad</code> y el evento <code>ev_monitoreo_uptime</code> que inserte <code>Uptime</code> cada hora.</li>
+  <li>Explicar la diferencia entre <code>ENABLE</code>, <code>DISABLE</code> y <code>DROP</code>.</li>
+  <li>Justificar el beneficio y el riesgo de automatizar sin supervisión.</li>
+  <li>Verificar con <code>SHOW EVENTS</code> que el evento quedó creado.</li>
+</ul>

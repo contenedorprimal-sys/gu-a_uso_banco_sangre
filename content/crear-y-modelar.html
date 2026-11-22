@@ -1,0 +1,107 @@
+<h2 id="crear-base">Crear una base con intención</h2>
+<p>Una base de datos se crea una vez, pero su codificación y colación afectan cada texto que guardes. Para español y datos de personas, <code>utf8mb4</code> evita problemas con acentos, emojis y caracteres fuera del plano básico.</p>
+<pre><code class="language-sql">DROP DATABASE IF EXISTS banco_sangre;
+CREATE DATABASE banco_sangre
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_spanish_ci;
+
+USE banco_sangre;</code></pre>
+<p><code>utf8mb4</code> es el conjunto de caracteres; <code>utf8mb4_spanish_ci</code> define cómo se comparan y ordenan los textos (<code>ci</code> = case insensitive). Si comparas correos, quizá quieras una colación binaria o normalizar a minúsculas antes de guardar.</p>
+
+<h2 id="tipos">Elegir el tipo de dato</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tipo</th><th>Cuándo usarlo</th><th>Ojo con</th></tr></thead>
+  <tbody>
+    <tr><td><code>INT</code></td><td>IDs, cantidades pequeñas</td><td>Límite de 2,147,483,647; para historiales usa <code>BIGINT</code></td></tr>
+    <tr><td><code>VARCHAR(n)</code></td><td>Textos de longitud variable</td><td>No reserva n bytes en disco, pero la estimación conservadora sí los suma</td></tr>
+    <tr><td><code>DATE</code></td><td>Fecha sin hora</td><td>No guarda zona horaria</td></tr>
+    <tr><td><code>DATETIME</code></td><td>Fecha y hora</td><td>No convierte zona; <code>TIMESTAMP</code> sí</td></tr>
+    <tr><td><code>DECIMAL(p,s)</code></td><td>Dinero, dosis, volúmenes exactos</td><td>Nunca uses <code>FLOAT</code> para dinero</td></tr>
+    <tr><td><code>ENUM</code></td><td>Categorías cerradas y estables</td><td>Agregar un valor requiere <code>ALTER TABLE</code></td></tr>
+    <tr><td><code>JSON</code></td><td>Datos semiestructurados o evidencia</td><td>No reemplaza columnas que consultas mucho</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="llaves">PRIMARY KEY, FOREIGN KEY y el resto</h2>
+<ul>
+  <li><strong>PRIMARY KEY:</strong> identifica de forma única cada fila. No admite NULL y suele ser autoincremental.</li>
+  <li><strong>FOREIGN KEY:</strong> obliga a que el valor exista en otra tabla. Es la diferencia entre una base relacional y una colección de archivos.</li>
+  <li><strong>UNIQUE:</strong> impide duplicados; permite NULL (una vez en MySQL).</li>
+  <li><strong>NOT NULL:</strong> el dato es obligatorio.</li>
+  <li><strong>CHECK:</strong> valida una condición; MySQL 8 la aplica de verdad.</li>
+  <li><strong>DEFAULT:</strong> valor cuando no se envía ninguno.</li>
+</ul>
+
+<pre><code class="language-sql">CREATE TABLE donantes (
+  id_donante       INT AUTO_INCREMENT PRIMARY KEY,
+  nombre           VARCHAR(60) NOT NULL,
+  apellido_paterno VARCHAR(60) NOT NULL,
+  fecha_nacimiento DATE NOT NULL,
+  tipo_sangre      ENUM('A','B','AB','O') NOT NULL,
+  factor_rh        ENUM('+','-') NOT NULL,
+  correo           VARCHAR(120) UNIQUE,
+  activo           TINYINT NOT NULL DEFAULT 1,
+  CONSTRAINT chk_nacimiento CHECK (fecha_nacimiento &gt;= '1900-01-01')
+) ENGINE=InnoDB;</code></pre>
+
+<div class="callout callout--warning">
+  <p class="callout__label">Cuidado con CURRENT_DATE</p>
+  <p>MySQL 8 no permite funciones no deterministas como <code>CURRENT_DATE</code> dentro de un <code>CHECK</code>. La regla «la fecha no puede ser futura» se valida en la aplicación o con un trigger; el <code>CHECK</code> solo comprueba un límite fijo.</p>
+</div>
+
+<p>La tabla anterior no guarda la donación: guarda a la persona. La donación es otro hecho, con su propia fecha, peso, hemoglobina y estado. Separar hechos evita repetir datos y permite que una persona done muchas veces.</p>
+
+<pre><code class="language-sql">CREATE TABLE donaciones (
+  id_donacion    INT AUTO_INCREMENT PRIMARY KEY,
+  id_donante     INT NOT NULL,
+  fecha_donacion DATETIME NOT NULL,
+  tipo_donacion  ENUM('voluntaria','reposicion','autologa') NOT NULL DEFAULT 'voluntaria',
+  peso_kg        DECIMAL(5,2),
+  hemoglobina    DECIMAL(4,2),
+  estado         ENUM('registrada','apta','rechazada') NOT NULL DEFAULT 'registrada',
+  CONSTRAINT fk_donacion_donante
+    FOREIGN KEY (id_donante) REFERENCES donantes (id_donante)
+    ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT chk_peso CHECK (peso_kg IS NULL OR peso_kg &gt; 0)
+) ENGINE=InnoDB;</code></pre>
+
+<div class="callout callout--note">
+  <p class="callout__label">ON DELETE RESTRICT</p>
+  <p>Si alguien intenta borrar un donante con donaciones registradas, MySQL lo impide. En un banco de sangre eso es correcto: la trazabilidad no se borra. Si quisieras borrado en cascada, lo pensarías dos veces antes de aplicarlo a datos clínicos.</p>
+</div>
+
+<h2 id="integridad">La integridad no es un lujo</h2>
+<p>Sin <code>FOREIGN KEY</code>, nada impide registrar una unidad con <code>id_donacion = 999</code> que no existe. La aplicación podría validarlo, pero cualquier script, importación o error humano puede saltarse esa validación. La base de datos es el último guardián.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Regla</th><th>Qué impide</th></tr></thead>
+  <tbody>
+    <tr><td><code>PRIMARY KEY</code></td><td>Dos unidades con el mismo id</td></tr>
+    <tr><td><code>FOREIGN KEY</code></td><td>Una unidad sin donación real</td></tr>
+    <tr><td><code>UNIQUE(codigo_barras)</code></td><td>Dos etiquetas iguales en inventario</td></tr>
+    <tr><td><code>CHECK(volumen_ml &gt; 0)</code></td><td>Una unidad con volumen cero o negativo</td></tr>
+    <tr><td><code>NOT NULL</code></td><td>Una donación sin fecha</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>El esquema del proyecto tiene 12 tablas. La más importante no es la más grande: es <code>unidades_sangre</code>, porque conecta donación, pruebas, solicitudes y despachos. Su <code>codigo_barras</code> es único y su estado solo puede ser uno de cinco valores.</p>
+</div>
+
+<h2 id="alter">Cambiar un esquema sin romperlo</h2>
+<pre><code class="language-sql">-- Agregar una columna opcional
+ALTER TABLE donantes
+  ADD COLUMN notas_internas VARCHAR(255) NULL;
+
+-- Agregar una restricción a datos existentes (falla si hay violaciones)
+ALTER TABLE unidades_sangre
+  ADD CONSTRAINT chk_vencimiento CHECK (fecha_vencimiento &gt;= fecha_extraccion);
+
+-- Ver la estructura
+DESCRIBE unidades_sangre;
+SHOW CREATE TABLE unidades_sangre\G</code></pre>
+<p>Antes de un <code>ALTER</code> en producción, revisa el tamaño de la tabla, el tiempo de bloqueo y si existe una ventana de mantenimiento. En MySQL 8 muchas operaciones son <em>online</em>, pero no todas.</p>

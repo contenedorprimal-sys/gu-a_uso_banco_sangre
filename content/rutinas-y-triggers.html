@@ -1,0 +1,212 @@
+<h2 id="rutinas">Guardar lógica en el servidor</h2>
+<p>Una consulta se escribe y se olvida. Una rutina se guarda con nombre y se ejecuta cuando hace falta. En MySQL las más comunes son los procedimientos almacenados (<code>PROCEDURE</code>), los disparadores (<code>TRIGGER</code>) y los eventos (<code>EVENT</code>).</p>
+<pre><code class="language-sql">DELIMITER //
+
+CREATE PROCEDURE sp_resumen_inventario(IN p_componente VARCHAR(30))
+BEGIN
+  SELECT
+    tipo_componente,
+    estado,
+    COUNT(*) AS unidades,
+    SUM(volumen_ml) AS volumen_ml
+  FROM unidades_sangre
+  WHERE tipo_componente = p_componente
+  GROUP BY tipo_componente, estado
+  ORDER BY estado;
+END //
+
+DELIMITER ;
+
+CALL sp_resumen_inventario('globulos_rojos');</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>tipo_componente</th><th>estado</th><th>unidades</th><th>volumen_ml</th></tr></thead>
+  <tbody><tr><td>globulos_rojos</td><td>disponible</td><td>1</td><td>270</td></tr><tr><td>globulos_rojos</td><td>reservada</td><td>1</td><td>285</td></tr><tr><td>globulos_rojos</td><td>despachada</td><td>3</td><td>855</td></tr><tr><td>globulos_rojos</td><td>vencida</td><td>1</td><td>290</td></tr></tbody>
+</table>
+</div>
+
+<p><code>DELIMITER //</code> cambia el terminador para que el cliente no corte el procedimiento en el primer punto y coma. Al final se restaura con <code>DELIMITER ;</code>. El <code>CALL</code> ejecuta la rutina.</p>
+
+<h2 id="parametros">Parámetros IN, OUT e INOUT</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tipo</th><th>Dirección</th><th>Uso</th></tr></thead>
+  <tbody>
+    <tr><td><code>IN</code></td><td>Entra al procedimiento</td><td>Filtro o dato de trabajo.</td></tr>
+    <tr><td><code>OUT</code></td><td>Sale del procedimiento</td><td>Total, mensaje o código de resultado.</td></tr>
+    <tr><td><code>INOUT</code></td><td>Entra y sale</td><td>Acumulador o valor que se transforma.</td></tr>
+  </tbody>
+</table>
+</div>
+<pre><code class="language-sql">DELIMITER //
+
+CREATE PROCEDURE sp_total_disponible(OUT p_total INT)
+BEGIN
+  SELECT COUNT(*) INTO p_total
+  FROM unidades_sangre
+  WHERE estado = 'disponible';
+END //
+
+DELIMITER ;
+
+CALL sp_total_disponible(@total);
+SELECT @total AS unidades_disponibles;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>unidades_disponibles</th></tr></thead>
+  <tbody><tr><td><em>NULL</em></td></tr></tbody>
+</table>
+</div>
+
+
+<h2 id="control">Variables, IF y transacciones dentro de una rutina</h2>
+<pre><code class="language-sql">DELIMITER //
+
+CREATE PROCEDURE sp_despachar_unidad(
+  IN p_id_unidad INT,
+  IN p_id_despacho INT,
+  OUT p_resultado VARCHAR(120)
+)
+BEGIN
+  DECLARE v_estado VARCHAR(20);
+
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    ROLLBACK;
+    SET p_resultado = 'error: transacción revertida';
+  END;
+
+  START TRANSACTION;
+
+  SELECT estado INTO v_estado
+  FROM unidades_sangre
+  WHERE id_unidad = p_id_unidad
+  FOR UPDATE;
+
+  IF v_estado IS NULL THEN
+    SET p_resultado = 'error: la unidad no existe';
+    ROLLBACK;
+  ELSEIF v_estado &lt;&gt; 'reservada' THEN
+    SET p_resultado = CONCAT('error: estado no permitido (', v_estado, ')');
+    ROLLBACK;
+  ELSE
+    INSERT INTO despacho_detalle (id_despacho, id_unidad)
+    VALUES (p_id_despacho, p_id_unidad);
+
+    UPDATE unidades_sangre
+    SET estado = 'despachada'
+    WHERE id_unidad = p_id_unidad;
+
+    COMMIT;
+    SET p_resultado = 'ok';
+  END IF;
+END //
+
+DELIMITER ;</code></pre>
+<p><code>FOR UPDATE</code> bloquea la fila mientras se decide. El <code>EXIT HANDLER</code> garantiza que un error no deje la transacción abierta. Una rutina que escribe debe tener una estrategia explícita de <code>COMMIT</code> y <code>ROLLBACK</code>.</p>
+
+<h2 id="triggers">Triggers: reaccionar a un cambio</h2>
+<p>Un trigger se ejecuta automáticamente ante un <code>INSERT</code>, <code>UPDATE</code> o <code>DELETE</code>. No se llama con <code>CALL</code>: se dispara con el cambio.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Momento</th><th>Sirve para</th><th>Ejemplo</th></tr></thead>
+  <tbody>
+    <tr><td><code>BEFORE INSERT</code></td><td>Validar o completar datos</td><td>Rechazar un volumen negativo.</td></tr>
+    <tr><td><code>AFTER INSERT</code></td><td>Auditar o propagar</td><td>Registrar la entrada en el historial.</td></tr>
+    <tr><td><code>BEFORE UPDATE</code></td><td>Validar el cambio</td><td>Impedir cambiar una unidad despachada.</td></tr>
+    <tr><td><code>AFTER UPDATE</code></td><td>Guardar el antes y el después</td><td>Auditoría de estados.</td></tr>
+    <tr><td><code>BEFORE DELETE</code></td><td>Proteger o archivar</td><td>Impedir borrar una unidad con despacho.</td></tr>
+  </tbody>
+</table>
+</div>
+<pre><code class="language-sql">DELIMITER //
+
+CREATE TRIGGER trg_unidades_auditoria
+AFTER UPDATE ON unidades_sangre
+FOR EACH ROW
+BEGIN
+  IF NOT (OLD.estado &lt;=&gt; NEW.estado) THEN
+    INSERT INTO auditoria_unidades
+      (id_unidad, accion, usuario, datos_anteriores, datos_nuevos)
+    VALUES (
+      OLD.id_unidad,
+      'UPDATE',
+      USER(),
+      JSON_OBJECT('estado', OLD.estado, 'ubicacion', OLD.ubicacion),
+      JSON_OBJECT('estado', NEW.estado, 'ubicacion', NEW.ubicacion)
+    );
+  END IF;
+END //
+
+DELIMITER ;</code></pre>
+<p><code>OLD</code> tiene el valor anterior y <code>NEW</code> el nuevo. En un <code>INSERT</code> no existe <code>OLD</code>; en un <code>DELETE</code> no existe <code>NEW</code>. El operador <code>&lt;=&gt;</code> compara también <code>NULL</code> sin devolver <code>NULL</code>.</p>
+
+<div class="callout callout--warning">
+  <p class="callout__label">Triggers que se muerden la cola</p>
+  <p>Un trigger <code>AFTER UPDATE</code> que actualiza la misma tabla puede volver a dispararse. MySQL limita la recursión, pero el diseño sigue siendo frágil. Mantén los triggers cortos, sin llamadas externas y sin lógica de negocio pesada.</p>
+</div>
+
+<h2 id="eventos">Eventos: tareas programadas</h2>
+<pre><code class="language-sql">SHOW VARIABLES LIKE 'event_scheduler';
+
+-- Requiere privilegio de administrador
+SET GLOBAL event_scheduler = ON;
+
+CREATE EVENT IF NOT EXISTS ev_marcar_vencidas
+ON SCHEDULE EVERY 1 DAY
+STARTS CURRENT_TIMESTAMP + INTERVAL 1 MINUTE
+DO
+  UPDATE unidades_sangre
+  SET estado = 'vencida'
+  WHERE estado = 'disponible'
+    AND fecha_vencimiento &lt; CURDATE();</code></pre>
+<p>El evento existe aunque el scheduler esté apagado; simplemente no corre. Antes de confiar en él, verifica <code>event_scheduler = ON</code> y deja evidencia de cada ejecución. Un <code>UPDATE</code> automático sin monitoreo es un incidente esperando su turno.</p>
+
+<h2 id="cuando">¿Rutina, trigger o evento?</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Herramienta</th><th>Se ejecuta cuando…</th><th>Úsala para</th></tr></thead>
+  <tbody>
+    <tr><td>Procedimiento</td><td>Alguien llama con <code>CALL</code></td><td>Un flujo que la aplicación decide iniciar.</td></tr>
+    <tr><td>Trigger</td><td>Ocurre un cambio en una tabla</td><td>Integridad y auditoría inseparables del dato.</td></tr>
+    <tr><td>Evento</td><td>Llega una hora o un intervalo</td><td>Mantenimiento periódico e idempotente.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>El proyecto usa un procedimiento para despachar, triggers para auditar cambios de estado y un evento para marcar vencimientos y guardar el Uptime. Cada mecanismo tiene una responsabilidad distinta: la aplicación no necesita recordar la auditoría ni el vencimiento.</p>
+</div>
+
+<h2 id="practica">Práctica</h2>
+<pre><code class="language-sql">-- 1. Procedimiento que cuenta unidades por estado
+DELIMITER //
+CREATE PROCEDURE sp_conteo_por_estado()
+BEGIN
+  SELECT estado, COUNT(*) AS unidades
+  FROM unidades_sangre
+  GROUP BY estado
+  ORDER BY unidades DESC;
+END //
+DELIMITER ;
+
+CALL sp_conteo_por_estado();
+
+-- 2. Ver los triggers y eventos existentes
+SHOW TRIGGERS;
+SHOW EVENTS;
+
+-- 3. Apagar un evento sin borrarlo
+ALTER EVENT ev_marcar_vencidas DISABLE;
+ALTER EVENT ev_marcar_vencidas ENABLE;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>estado</th><th>unidades</th></tr></thead>
+  <tbody><tr><td>disponible</td><td>6</td></tr><tr><td>despachada</td><td>5</td></tr><tr><td>reservada</td><td>1</td></tr><tr><td>vencida</td><td>1</td></tr><tr><td>descartada</td><td>1</td></tr></tbody>
+</table>
+</div>
+

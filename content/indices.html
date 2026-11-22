@@ -1,0 +1,127 @@
+<h2 id="que-es">Qué es realmente un índice</h2>
+<p>Un índice es una estructura auxiliar (normalmente un árbol B+) que mantiene una columna o varias ordenadas, con punteros a las filas. Sin índice, MySQL lee la tabla completa para encontrar una fila: un <em>full table scan</em>. Con índice, salta casi directamente a las filas que cumplen la condición.</p>
+<p>La analogía del libro sirve: el índice del final no cambia el contenido, pero evita leer las 400 páginas para encontrar «failover».</p>
+
+<h2 id="cuando">Cuándo ayuda y cuándo estorba</h2>
+<div class="grid-2">
+  <div class="mini-card">
+    <h3>Ayuda</h3>
+    <ul>
+      <li>Columnas usadas en <code>WHERE</code></li>
+      <li>Columnas de <code>JOIN</code></li>
+      <li>Columnas de <code>ORDER BY</code></li>
+      <li>Columnas con muchos valores distintos</li>
+      <li>Búsquedas por rango de fechas</li>
+    </ul>
+  </div>
+  <div class="mini-card">
+    <h3>Estorba</h3>
+    <ul>
+      <li>Columnas con dos o tres valores (sexo, activo)</li>
+      <li>Tablas muy pequeñas</li>
+      <li>Demasiados índices: cada <code>INSERT</code> los actualiza</li>
+      <li>Consultas que ya leen casi toda la tabla</li>
+    </ul>
+  </div>
+</div>
+
+<h2 id="compuesto">El orden de un índice compuesto importa</h2>
+<p>Un índice sobre <code>(grupo_abo, factor_rh, estado, fecha_vencimiento)</code> sirve para:</p>
+<ul>
+  <li><code>WHERE grupo_abo = 'O'</code></li>
+  <li><code>WHERE grupo_abo = 'O' AND factor_rh = '+'</code></li>
+  <li><code>WHERE grupo_abo = 'O' AND factor_rh = '+' AND estado = 'disponible'</code></li>
+  <li>…y además ordena por <code>fecha_vencimiento</code> dentro de esas igualdades.</li>
+</ul>
+<p>No sirve para <code>WHERE estado = 'disponible'</code> sin las columnas anteriores: es como buscar en el índice de un libro por la tercera letra de la palabra.</p>
+<div class="callout callout--note">
+  <p class="callout__label">Regla práctica</p>
+  <p>Ordena las columnas del índice así: primero las de igualdad, después las de rango, y al final las de orden. La consulta del mostrador usa igualdad en grupo, RH y estado, y orden por vencimiento; el índice sigue exactamente ese orden.</p>
+</div>
+
+<h2 id="crear">Crear el índice del proyecto</h2>
+<pre><code class="language-sql">-- Consulta crítica: unidades O+ disponibles, la que vence primero
+SELECT id_unidad, codigo_barras, tipo_componente, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+  AND grupo_abo = 'O'
+  AND factor_rh = '+'
+ORDER BY fecha_vencimiento ASC;
+
+-- Índice que cubre igualdad + orden
+CREATE INDEX idx_unidades_o_positivo
+  ON unidades_sangre (grupo_abo, factor_rh, estado, fecha_vencimiento);</code></pre>
+
+<h2 id="explain">Leer EXPLAIN sin adivinar</h2>
+<pre><code class="language-sql">EXPLAIN
+SELECT id_unidad, codigo_barras, tipo_componente, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+  AND grupo_abo = 'O'
+  AND factor_rh = '+'
+ORDER BY fecha_vencimiento ASC;</code></pre>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Columna</th><th>Qué mirar</th></tr></thead>
+  <tbody>
+    <tr><td><code>type</code></td><td><code>ALL</code> es table scan; <code>ref</code>, <code>range</code> o <code>index</code> suelen ser mejores</td></tr>
+    <tr><td><code>possible_keys</code></td><td>Índices que el optimizador consideró</td></tr>
+    <tr><td><code>key</code></td><td>Índice que eligió; si es NULL, no usó ninguno</td></tr>
+    <tr><td><code>rows</code></td><td>Filas estimadas que examinará</td></tr>
+    <tr><td><code>Extra</code></td><td><code>Using filesort</code> o <code>Using temporary</code> son señales de alerta</td></tr>
+  </tbody>
+</table>
+</div>
+<p>En MySQL 8, <code>EXPLAIN ANALYZE</code> ejecuta la consulta y muestra el tiempo real por etapa. Es la diferencia entre «el plan dice» y «el plan hizo».</p>
+<pre><code class="language-sql">EXPLAIN ANALYZE
+SELECT id_unidad, codigo_barras, tipo_componente, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+  AND grupo_abo = 'O'
+  AND factor_rh = '+'
+ORDER BY fecha_vencimiento ASC;</code></pre>
+
+<h2 id="antes-despues">Antes y después: qué comparar</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Métrica</th><th>Antes</th><th>Después</th></tr></thead>
+  <tbody>
+    <tr><td>Acceso</td><td><code>ALL</code></td><td><code>ref</code></td></tr>
+    <tr><td>Índice usado</td><td><code>NULL</code></td><td><code>idx_unidades_o_positivo</code></td></tr>
+    <tr><td>Filas examinadas</td><td>Todas</td><td>Solo las O+ disponibles</td></tr>
+    <tr><td>Orden</td><td><code>Using filesort</code></td><td>Sin filesort</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Con 14 filas de demo la diferencia es de décimas de milisegundo. Con millones de unidades es la diferencia entre una pantalla instantánea y una que tarda segundos.</p>
+
+<h2 id="costos">El costo de indexar</h2>
+<ul>
+  <li>Ocupa espacio en disco y en memoria.</li>
+  <li>Hace más lento cada <code>INSERT</code>, <code>UPDATE</code> y <code>DELETE</code>, porque hay que mantener el árbol.</li>
+  <li>Puede confundir al optimizador si hay demasiados índices parecidos.</li>
+  <li>Un índice que nadie usa es deuda técnica: revísalo con <code>performance_schema</code>.</li>
+</ul>
+<pre><code class="language-sql">-- Índices de una tabla y su cardinalidad
+SHOW INDEX FROM unidades_sangre;
+
+-- Tamaño de los índices de la base
+SELECT table_name,
+       ROUND(index_length / 1024 / 1024, 2) AS indices_mb
+FROM information_schema.TABLES
+WHERE table_schema = 'banco_sangre'
+ORDER BY index_length DESC;</code></pre>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>El índice <code>idx_unidades_o_positivo</code> se crea en la unidad 5, después de medir. No se crea «porque suena bien»: se justifica con <code>EXPLAIN</code> antes y después, y se documenta el cambio en el README.</p>
+</div>
+
+<h2 id="errores">Errores frecuentes con índices</h2>
+<ul>
+  <li>Indexar todo «por si acaso»: el rendimiento de escritura se degrada.</li>
+  <li>Crear un índice sobre una columna con <code>LIKE '%texto%'</code>: el comodín al inicio impide usarlo.</li>
+  <li>Poner la columna de rango antes que las de igualdad en el índice compuesto.</li>
+  <li>No actualizar estadísticas después de cambios masivos: usa <code>ANALYZE TABLE</code>.</li>
+  <li>Confundir el índice con una copia de la tabla: no lo es.</li>
+</ul>

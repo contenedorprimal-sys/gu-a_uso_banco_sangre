@@ -1,0 +1,121 @@
+<h2 id="monitorear">Lo que no se mide no se administra</h2>
+<p>Un DBA no debería enterarse de que el disco está lleno porque falló una escritura. El monitoreo proactivo mira tendencias, define umbrales y alerta antes del incidente. Las tres fuentes principales en MySQL son <code>performance_schema</code>, <code>information_schema</code> y las tablas propias de bitácora.</p>
+
+<h2 id="global-status">Estado general del servidor</h2>
+<pre><code class="language-sql">SELECT VARIABLE_NAME, VARIABLE_VALUE
+FROM performance_schema.global_status
+WHERE VARIABLE_NAME IN (
+  'Uptime',
+  'Threads_connected',
+  'Threads_running',
+  'Questions',
+  'Slow_queries',
+  'Aborted_connects',
+  'Innodb_buffer_pool_read_requests',
+  'Innodb_buffer_pool_reads'
+);</code></pre>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Variable</th><th>Qué te dice</th></tr></thead>
+  <tbody>
+    <tr><td><code>Uptime</code></td><td>Segundos desde el último arranque; un valor bajo inesperado sugiere reinicio</td></tr>
+    <tr><td><code>Threads_connected</code></td><td>Conexiones abiertas</td></tr>
+    <tr><td><code>Threads_running</code></td><td>Consultas ejecutándose ahora</td></tr>
+    <tr><td><code>Slow_queries</code></td><td>Consultas que superaron <code>long_query_time</code></td></tr>
+    <tr><td><code>Aborted_connects</code></td><td>Conexiones rechazadas: credenciales, red o límite</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="procesos">Consultas activas</h2>
+<pre><code class="language-sql">SELECT id, user, host, db, command, time, state, LEFT(info, 120) AS consulta
+FROM performance_schema.processlist
+WHERE command &lt;&gt; 'Sleep'
+ORDER BY time DESC;</code></pre>
+<p>En MySQL 8.0.22+ usa <code>performance_schema.processlist</code>; la versión de <code>information_schema</code> está deprecada. Una consulta con <code>time</code> alto y estado <code>Locked</code> o <code>Waiting for ...</code> puede estar bloqueando a otras. No la mates sin entender qué hace: quizá sea una transacción importante.</p>
+
+<h2 id="consultas-lentas">Consultas más costosas</h2>
+<pre><code class="language-sql">SELECT
+  DIGEST_TEXT,
+  COUNT_STAR AS ejecuciones,
+  ROUND(SUM_TIMER_WAIT / 1000000000000, 3) AS segundos_totales,
+  ROUND(AVG_TIMER_WAIT / 1000000000, 3) AS ms_promedio
+FROM performance_schema.events_statements_summary_by_digest
+WHERE SCHEMA_NAME = 'banco_sangre'
+ORDER BY SUM_TIMER_WAIT DESC
+LIMIT 10;</code></pre>
+<p>Los timers de <code>performance_schema</code> están en picosegundos: divide entre <code>1e12</code> para segundos y entre <code>1e9</code> para milisegundos. Esta vista agrupa consultas equivalentes y muestra dónde se va el tiempo. Es el punto de partida de la unidad 5: primero se mide, después se indexa.</p>
+
+<h2 id="eventos">Eventos programados</h2>
+<pre><code class="language-sql">SELECT event_schema, event_name, status,
+       interval_value, interval_field,
+       last_executed, last_altered
+FROM information_schema.events
+WHERE event_schema = 'banco_sangre';</code></pre>
+<p><code>last_executed</code> es la evidencia. Un evento con estado <code>ENABLED</code> pero sin ejecución reciente está fallando en silencio.</p>
+
+<h2 id="espacio">Espacio y crecimiento</h2>
+<pre><code class="language-sql">SELECT
+  table_name,
+  table_rows,
+  ROUND((data_length + index_length) / 1024 / 1024, 2) AS total_mb,
+  ROUND(index_length / NULLIF(data_length + index_length, 0) * 100, 2) AS pct_indices
+FROM information_schema.tables
+WHERE table_schema = 'banco_sangre'
+ORDER BY (data_length + index_length) DESC;</code></pre>
+<p>Complementa con <code>df -h</code> en el sistema operativo. MySQL te dice cuánto ocupan sus tablas; el sistema operativo te dice cuánto queda en el disco.</p>
+
+<h2 id="auditoria">Auditoría: la evidencia del cambio</h2>
+<p>El estado actual responde «¿dónde está la unidad?». La auditoría responde «¿quién la cambió y cuándo?». Para operaciones sensibles, la segunda pregunta es obligatoria.</p>
+<pre><code class="language-sql">CREATE TRIGGER trg_unidades_after_update
+AFTER UPDATE ON unidades_sangre
+FOR EACH ROW
+BEGIN
+  INSERT INTO auditoria_unidades
+    (id_unidad, accion, usuario, datos_anteriores, datos_nuevos)
+  VALUES (
+    NEW.id_unidad,
+    'UPDATE',
+    CURRENT_USER(),
+    JSON_OBJECT('estado', OLD.estado, 'ubicacion', OLD.ubicacion),
+    JSON_OBJECT('estado', NEW.estado, 'ubicacion', NEW.ubicacion)
+  );
+END;</code></pre>
+<p>Un trigger no reemplaza una política de auditoría, pero garantiza que el registro ocurra aunque la aplicación lo olvide. El proyecto crea tres: <code>AFTER INSERT</code>, <code>AFTER UPDATE</code> y <code>AFTER DELETE</code>.</p>
+
+<div class="callout callout--warning">
+  <p class="callout__label">Cuidado con el costo</p>
+  <p>Cada trigger agrega trabajo a la escritura. Auditar todo puede ser caro; audita lo sensible. En este caso, el cambio de estado de una unidad es exactamente lo que hay que vigilar.</p>
+</div>
+
+<h2 id="seguridad">Seguridad y mínimo privilegio</h2>
+<p>La auditoría se complementa con roles: laboratorio no borra, recepción no ve datos personales, auditoría no escribe. Si una cuenta comprometida tiene <code>ALL PRIVILEGES</code>, la auditoría sirve para saber qué pasó, no para evitarlo.</p>
+<pre><code class="language-sql">SHOW GRANTS FOR 'lab_user'@'localhost';
+SELECT user, host FROM mysql.user ORDER BY user;
+SELECT * FROM auditoria_unidades ORDER BY id_auditoria DESC LIMIT 10;</code></pre>
+
+<h2 id="disponibilidad">Monitoreo de disponibilidad</h2>
+<p>La tabla <code>bitacora_disponibilidad</code> guarda un snapshot de <code>Uptime</code> cada hora. Si aparece un hueco mayor a una hora o el Uptime retrocede, hubo un reinicio o una caída.</p>
+<pre><code class="language-sql">SELECT
+  fecha_registro,
+  uptime_seg,
+  TIMESTAMPDIFF(MINUTE,
+    LAG(fecha_registro) OVER (ORDER BY fecha_registro),
+    fecha_registro) AS minutos_desde_anterior
+FROM bitacora_disponibilidad
+ORDER BY fecha_registro DESC
+LIMIT 20;</code></pre>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>La operación sensible no es «leer una unidad»: es cambiarla de disponible a despachada, vencida o descartada. Ese cambio mueve inventario real y afecta a pacientes. Por eso tiene trigger, rol restringido y consulta de auditoría en la demo.</p>
+</div>
+
+<h2 id="errores">Errores comunes</h2>
+<ul>
+  <li>Mirar un valor aislado en vez de la tendencia.</li>
+  <li>No revisar los eventos: se cree que están corriendo y no.</li>
+  <li>Auditar sin proteger la tabla de auditoría.</li>
+  <li>Dar privilegios de más «para que funcione».</li>
+  <li>No probar que la alerta realmente llega a alguien.</li>
+</ul>

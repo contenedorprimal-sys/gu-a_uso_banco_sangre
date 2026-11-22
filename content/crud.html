@@ -1,0 +1,106 @@
+<h2 id="insert">INSERT: registrar un hecho</h2>
+<p>Un <code>INSERT</code> agrega filas. Lo importante no es la sintaxis, sino que la fila represente un hecho real y completo. Si falta la fecha o el estado, la base queda con datos que después nadie puede interpretar.</p>
+<pre><code class="language-sql">USE banco_sangre;
+
+INSERT INTO donantes
+  (nombre, apellido_paterno, apellido_materno, fecha_nacimiento,
+   sexo, tipo_sangre, factor_rh, telefono, correo)
+VALUES
+  ('Ana Sofía', 'Ramírez', 'López', '1992-04-18',
+   'F', 'O', '+', '5512345601', 'ana.ramirez@example.com');
+
+-- Varias filas en una sola sentencia
+INSERT INTO hospitales (nombre, contacto, telefono, convenio)
+VALUES
+  ('Hospital General de Zona', 'Dra. Patria Solís', '5555001100', 'activo'),
+  ('Hospital Ángeles',         'Dr. Mario Lara',    '5555002200', 'activo');</code></pre>
+<p>El <code>id</code> no se envía: <code>AUTO_INCREMENT</code> lo genera. Si necesitas el valor recién creado, usa <code>LAST_INSERT_ID()</code> en la misma conexión.</p>
+<pre><code class="language-sql">INSERT INTO donaciones (id_donante, fecha_donacion, estado)
+VALUES (LAST_INSERT_ID(), NOW(), 'registrada');</code></pre>
+
+<h2 id="select">SELECT: leer con preguntas concretas</h2>
+<p><code>SELECT *</code> sirve para explorar, no para una aplicación. En producción pide solo las columnas que necesitas: menos datos, menos red, menos memoria.</p>
+<pre><code class="language-sql">-- Explorar
+SELECT * FROM donantes LIMIT 5;
+
+-- Columnas concretas, con filtro y orden
+SELECT id_donante, nombre, apellido_paterno, tipo_sangre, factor_rh
+FROM donantes
+WHERE activo = 1 AND tipo_sangre = 'O'
+ORDER BY apellido_paterno, nombre;
+
+-- Buscar un patrón
+SELECT nombre, correo
+FROM donantes
+WHERE nombre LIKE 'Ana%';
+
+-- Valores nulos
+SELECT nombre, correo
+FROM donantes
+WHERE correo IS NULL;</code></pre>
+<p><code>NULL</code> no es cero ni cadena vacía: es ausencia de dato. Por eso se compara con <code>IS NULL</code>, nunca con <code>= NULL</code>.</p>
+
+<h2 id="update">UPDATE: el WHERE es la diferencia entre corregir y destruir</h2>
+<pre><code class="language-sql">-- Cambiar el estado de UNA unidad
+UPDATE unidades_sangre
+SET estado = 'reservada', ubicacion = 'Refrigerador 1'
+WHERE id_unidad = 9;
+
+-- Subir el precio de una categoría (varias filas)
+UPDATE productos
+SET precio_unitario = ROUND(precio_unitario * 1.08, 2)
+WHERE categoria = 'Electrónica';</code></pre>
+<div class="callout callout--warning">
+  <p class="callout__label">Antes de ejecutar un UPDATE</p>
+  <p>Ejecuta el mismo <code>WHERE</code> con <code>SELECT COUNT(*)</code>. Si el número no es el que esperas, detente. Un <code>UPDATE</code> sin <code>WHERE</code> actualiza todas las filas y no hay botón de deshacer fuera de una transacción.</p>
+</div>
+<pre><code class="language-sql">-- Verificar el alcance antes de tocar
+SELECT COUNT(*) AS filas_afectadas
+FROM unidades_sangre
+WHERE estado = 'disponible' AND fecha_vencimiento &lt; CURRENT_DATE;</code></pre>
+
+<h2 id="delete">DELETE: borrar es una decisión de negocio</h2>
+<pre><code class="language-sql">-- Borrar un registro puntual
+DELETE FROM solicitud_detalle
+WHERE id_detalle = 10;
+
+-- Borrar solicitudes canceladas de un año (con cuidado)
+DELETE FROM solicitudes
+WHERE estado = 'cancelada'
+  AND fecha_solicitud &lt; '2025-01-01';</code></pre>
+<p>En un banco de sangre casi nada se borra: se marca como <code>descartada</code>, <code>vencida</code> o <code>cancelada</code>. El borrado físico destruye trazabilidad. Si de verdad hay que borrar, primero respalda y documenta.</p>
+
+<h2 id="transacciones">Varias operaciones, un solo hecho</h2>
+<p>Registrar un despacho implica crear el despacho, unir las unidades y cambiar su estado. Si falla a la mitad, la base quedaría inconsistente. Una transacción agrupa todo o nada.</p>
+<pre><code class="language-sql">START TRANSACTION;
+
+INSERT INTO despachos (id_solicitud, responsable, destino, estado)
+VALUES (3, 'Lic. Ana Prado', 'Hospital General de Zona', 'en_transito');
+
+SET @id_despacho = LAST_INSERT_ID();
+
+INSERT INTO despacho_detalle (id_despacho, id_unidad) VALUES (@id_despacho, 9);
+
+UPDATE unidades_sangre
+SET estado = 'despachada'
+WHERE id_unidad = 9;
+
+-- Si todo está bien:
+COMMIT;
+
+-- Si algo salió mal:
+-- ROLLBACK;</code></pre>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>La unidad 9 estaba <code>reservada</code>. Al despacharla, el trigger de auditoría guarda el estado anterior y el nuevo. Si el <code>COMMIT</code> falla, la unidad sigue reservada y no existe un despacho huérfano.</p>
+</div>
+
+<h2 id="limit">LIMIT y ORDER BY no son decoración</h2>
+<pre><code class="language-sql">-- Las cinco unidades que vencen primero
+SELECT codigo_barras, tipo_componente, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+ORDER BY fecha_vencimiento ASC
+LIMIT 5;</code></pre>
+<p>Sin <code>ORDER BY</code>, el orden de las filas no está garantizado. Aunque hoy salga «bonito», mañana el optimizador puede cambiarlo.</p>

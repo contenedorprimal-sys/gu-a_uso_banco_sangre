@@ -1,0 +1,73 @@
+<h2 id="instancia-vs-base">Instancia frente a base de datos</h2>
+<p>La confusión más común al empezar: «el servidor» y «la base de datos» no son lo mismo.</p>
+<div class="grid-2">
+  <div class="mini-card">
+    <h3>Instancia</h3>
+    <p>Procesos y memoria en ejecución. Es lo que <em>administra</em>: atiende conexiones, ejecuta consultas, escribe en disco.</p>
+  </div>
+  <div class="mini-card">
+    <h3>Base de datos</h3>
+    <p>Archivos físicos donde <em>viven</em> los datos. Persisten aunque la instancia se detenga.</p>
+  </div>
+</div>
+<p>Por eso reiniciar MySQL no borra nada: la instancia se apaga y vuelve a leer los archivos. Y por eso una copia de los archivos con la instancia encendida puede ser inconsistente.</p>
+
+<h2 id="tres-capas">Tres capas: procesos, memoria y archivos</h2>
+<ul>
+  <li><strong>Procesos en primer plano:</strong> atienden la conexión del cliente, reciben SQL y devuelven resultados.</li>
+  <li><strong>Procesos en segundo plano:</strong> escriben cambios, gestionan checkpoints, limpian memoria y garantizan recuperación.</li>
+  <li><strong>Archivos en disco:</strong> datos, metadatos, logs y configuración.</li>
+</ul>
+<p>En MySQL, la capa de almacenamiento de InnoDB es la que da transacciones ACID, bloqueos por fila y recuperación ante fallas. El <em>query cache</em> desapareció en MySQL 8; el caché real que importa es el <strong>buffer pool</strong>.</p>
+
+<h2 id="buffer-pool">El buffer pool: la memoria que más se nota</h2>
+<p>InnoDB guarda en RAM las páginas de datos e índices que se leen o modifican. Si la página está en el buffer pool, la consulta no toca el disco. Si no está, hay que leerla y probablemente escribirla después.</p>
+<pre><code class="language-sql">-- Tamaño actual del buffer pool
+SELECT @@innodb_buffer_pool_size AS bytes,
+       ROUND(@@innodb_buffer_pool_size / 1024 / 1024 / 1024, 2) AS gb;
+
+-- ¿Qué tan bien está funcionando el caché?
+SELECT VARIABLE_NAME, VARIABLE_VALUE
+FROM performance_schema.global_status
+WHERE VARIABLE_NAME IN (
+  'Innodb_buffer_pool_read_requests',
+  'Innodb_buffer_pool_reads'
+);</code></pre>
+<p>La proporción entre <code>read_requests</code> y <code>reads</code> te dice cuántas lecturas se resolvieron en memoria. Si <code>reads</code> crece demasiado, el buffer pool se queda corto o la consulta recorre demasiadas páginas.</p>
+
+<div class="callout callout--warning">
+  <p class="callout__label">Error común</p>
+  <p>Subir <code>max_connections</code> sin memoria. Cada conexión consume buffers privados; más conexiones con poca RAM solo cambian un cuello de botella por otro.</p>
+</div>
+
+<h2 id="redo-log">Redo log: la promesa de que no se pierde</h2>
+<p>Cuando confirmas una transacción con <code>COMMIT</code>, InnoDB escribe el cambio en el <strong>redo log</strong> antes de modificar la página definitiva en disco. Si el servidor se cae, al reiniciar se reproduce el log y el cambio confirmado sobrevive. Esa es la base de la durabilidad (la D de ACID).</p>
+<pre><code class="language-sql">-- Parámetros que conviene conocer antes de afinar
+SELECT @@innodb_log_file_size AS redo_mb,
+       @@innodb_flush_log_at_trx_commit AS flush_en_commit,
+       @@innodb_buffer_pool_instances AS instancias;</code></pre>
+<p><code>innodb_flush_log_at_trx_commit = 1</code> es lo seguro para un banco de sangre: cada commit se sincroniza a disco. Bajarlo mejora el rendimiento y aumenta la ventana de pérdida.</p>
+
+<h2 id="archivos">Archivos que no debes tocar a mano</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Archivo</th><th>Qué guarda</th><th>Consecuencia de manipularlo</th></tr></thead>
+  <tbody>
+    <tr><td><code>ibdata1</code></td><td>Espacio de tablas, undo, metadatos InnoDB</td><td>Corrupción de la base</td></tr>
+    <tr><td><code>*.ibd</code></td><td>Datos e índices de una tabla</td><td>Pérdida de la tabla</td></tr>
+    <tr><td><code>redo log</code></td><td>Cambios pendientes de aplicar</td><td>Imposible recuperar tras una caída</td></tr>
+    <tr><td><code>binlog</code></td><td>Historial de cambios para replicación y PITR</td><td>Pierdes recuperación punto en el tiempo</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>La unidad <code>GR-2026-0001</code> se marcó como despachada a las 09:20. El <code>COMMIT</code> llegó al redo log; el servidor se cayó un segundo después. Al reiniciar, la unidad sigue despachada y la auditoría conserva el cambio. Sin redo log, el sistema «olvidaría» un despacho real.</p>
+</div>
+
+<h2 id="practica">Práctica de dos minutos</h2>
+<pre><code class="language-sql">SHOW VARIABLES LIKE 'datadir';
+SHOW VARIABLES LIKE 'innodb_buffer_pool_size';
+SHOW ENGINE INNODB STATUS\G</code></pre>
+<p>El último comando imprime mucho texto: busca la sección <em>BUFFER POOL AND MEMORY</em> y la sección <em>TRANSACTIONS</em>. Saber leer esas dos secciones vale más que memorizar decenas de parámetros.</p>

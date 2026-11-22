@@ -1,0 +1,106 @@
+<h2 id="como-usar">Cómo usar este cuaderno</h2>
+<p>El sitio está pensado para leerse de principio a fin, pero también para consultarse como referencia. Cada capítulo mezcla explicación, código y una conexión explícita con el proyecto del banco de sangre.</p>
+<ul>
+  <li><strong>Portada:</strong> mapa del recorrido, el caso y las cifras del proyecto.</li>
+  <li><strong>Barra lateral:</strong> agrupa los capítulos por fase. En móvil se abre con el botón de menú.</li>
+  <li><strong>Índice derecho:</strong> muestra las secciones de la página actual y marca dónde estás.</li>
+  <li><strong>Paginación:</strong> al final de cada capítulo hay enlace al anterior y al siguiente.</li>
+</ul>
+
+<h2 id="buscar">Buscar</h2>
+<p>Pulsa <kbd>Ctrl</kbd> + <kbd>K</kbd> (o <kbd>⌘</kbd> + <kbd>K</kbd> en macOS), o la tecla <kbd>/</kbd>, para abrir la búsqueda. Escribe un tema, una función o una idea; muévete con <kbd>↑</kbd> y <kbd>↓</kbd> y abre con <kbd>Enter</kbd>. <kbd>Esc</kbd> cierra.</p>
+<p>La búsqueda indexa títulos, resúmenes, ideas clave y el texto de los capítulos. No necesita internet.</p>
+
+<h2 id="copiar">Copiar código</h2>
+<p>Cada bloque de código tiene un botón <strong>Copiar</strong> en la esquina superior derecha. El comando o consulta se copia tal cual, sin los números de línea (no hay números de línea).</p>
+<p>Los bloques están etiquetados por lenguaje: <code>SQL</code>, <code>BASH</code> o <code>TEXTO</code>.</p>
+
+<h2 id="ejecutar">Ejecutar el proyecto</h2>
+<p>Los scripts están en <code>proyecto/sql/</code>. Se ejecutan en este orden:</p>
+<pre><code class="language-text">00_esquema.sql
+01_datos_demo.sql
+02_unidad2_espacio_particiones_eventos.sql
+03_unidad3_seguridad_monitoreo_auditoria.sql
+04_unidad4_respaldo_recuperacion.sql
+04_respaldo_incremental.sh   (terminal)
+05_unidad5_afinacion.sql</code></pre>
+<p>En MySQL Workbench: <em>File → Open SQL Script</em>, selecciona el archivo y ejecuta con el rayo. Para ejecutar por bloques, selecciona el bloque y usa <em>Execute Current Statement</em>.</p>
+
+<div class="callout callout--warning">
+  <p class="callout__label">Antes de empezar</p>
+  <p>Los scripts <code>00</code> y <code>01</code> borran y recrean la base <code>banco_sangre</code>. No los ejecutes en un servidor con datos reales. Usa una instalación local o un contenedor.</p>
+</div>
+
+<h2 id="requisitos">Requisitos</h2>
+<ul>
+  <li>MySQL 8.x (o MariaDB 10.6+ con pequeños ajustes).</li>
+  <li>MySQL Workbench, DBeaver o la terminal <code>mysql</code>.</li>
+  <li>Permisos para crear bases, usuarios, roles y eventos.</li>
+  <li>Para la unidad 4: <code>mysqldump</code>, <code>mysqlbinlog</code> y un directorio de respaldo.</li>
+</ul>
+
+<h2 id="rutas">Rutas del sitio</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Ruta</th><th>Contenido</th></tr></thead>
+  <tbody>
+    <tr><td><code>#/</code></td><td>Portada y mapa del recorrido</td></tr>
+    <tr><td><code>#/capitulo/que-es-un-dbms</code> … <code>#/capitulo/proyecto-banco-sangre</code></td><td>Capítulos del curso, por identificador</td></tr>
+    <tr><td><code>#/capitulo/guia</code></td><td>Esta guía</td></tr>
+    <tr><td><code>#/capitulo/chuleta</code></td><td>Chuleta y errores comunes</td></tr>
+    <tr><td><code>#/capitulo/ejercicios</code></td><td>Ejercicios y retos</td></tr>
+    <tr><td><code>#/capitulo/datos-del-caso</code></td><td>Datos del caso: registros completos</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Los enlaces a secciones añaden el ancla después del identificador, por ejemplo <code>#/capitulo/indices#explain</code>. Puedes copiar la URL y volver exactamente a esa sección.</p>
+
+<h2 id="teclado">Atajos de teclado</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tecla</th><th>Acción</th></tr></thead>
+  <tbody>
+    <tr><td><kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd></td><td>Abrir búsqueda</td></tr>
+    <tr><td><kbd>/</kbd></td><td>Abrir búsqueda (fuera de un campo de texto)</td></tr>
+    <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Moverse por resultados</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>Abrir resultado</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Cerrar búsqueda o menú móvil</td></tr>
+    <tr><td><kbd>Tab</kbd></td><td>Navegar por enlaces y botones</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="accesibilidad">Diseño y accesibilidad</h2>
+<ul>
+  <li>Objetivos táctiles de al menos 44 × 44 px en móvil.</li>
+  <li>Foco visible en todos los controles.</li>
+  <li>Contraste alto en texto y código.</li>
+  <li>Tema claro y oscuro según la preferencia del sistema, sin interruptor propio.</li>
+  <li>Respeta <code>prefers-reduced-motion</code>: desactiva animaciones y desplazamiento suave.</li>
+  <li>Tipografía local: no se descarga nada al abrir la página.</li>
+  <li>Enlace «Saltar al contenido» para teclado.</li>
+</ul>
+
+<h2 id="editar">Dónde editar</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Qué</th><th>Dónde</th></tr></thead>
+  <tbody>
+    <tr><td>Prosa de un capítulo</td><td><code>sitio/content/&lt;id&gt;.html</code></td></tr>
+    <tr><td>Título, resumen e ideas clave</td><td><code>sitio/build/build.py</code></td></tr>
+    <tr><td>Portada, rutas y búsqueda</td><td><code>sitio/assets/app.js</code></td></tr>
+    <tr><td>Colores, tipografía y composición</td><td><code>sitio/assets/styles.css</code></td></tr>
+    <tr><td>Scripts SQL del proyecto</td><td><code>proyecto/sql/</code></td></tr>
+  </tbody>
+</table>
+</div>
+<p>Después de editar contenido, regenera el sitio:</p>
+<pre><code class="language-bash">cd sitio
+python3 build/build.py</code></pre>
+
+<h2 id="offline">Sin servidor</h2>
+<p>Puedes abrir <code>sitio/index.html</code> con doble clic. Todo el contenido viaja en <code>assets/content.js</code> y las fuentes son locales. No hay peticiones de red, cookies ni rastreadores.</p>
+<p>Si prefieres servirlo por HTTP:</p>
+<pre><code class="language-bash">cd sitio
+python3 -m http.server 8000</code></pre>
+<p>Y visita <code>http://localhost:8000</code>.</p>

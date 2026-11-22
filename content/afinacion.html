@@ -1,0 +1,125 @@
+<h2 id="orden">El orden correcto para afinar</h2>
+<ol>
+  <li><strong>Memoria:</strong> ¿el buffer pool está bien dimensionado?</li>
+  <li><strong>Consultas:</strong> ¿cuáles son las más costosas y por qué?</li>
+  <li><strong>Índices:</strong> ¿el plan usa el índice correcto?</li>
+  <li><strong>Esquema:</strong> ¿los tipos y el modelo acompañan?</li>
+  <li><strong>Hardware:</strong> solo después de agotar lo anterior.</li>
+</ol>
+<p>Empezar por comprar más RAM sin mirar las consultas es caro y a veces inútil.</p>
+
+<h2 id="parametros">Tres parámetros que importan</h2>
+<h3>1. innodb_buffer_pool_size</h3>
+<p>Memoria que InnoDB dedica a cachear páginas de datos e índices. En un servidor dedicado, 50–70 % de la RAM. Es la mejora más grande y más barata antes de tocar consultas.</p>
+<pre><code class="language-sql">SELECT @@innodb_buffer_pool_size AS bytes,
+       ROUND(@@innodb_buffer_pool_size / 1024 / 1024 / 1024, 2) AS gb;
+
+-- Tasa de aciertos del buffer pool
+SELECT
+  ROUND(
+    100 - (SELECT VARIABLE_VALUE FROM performance_schema.global_status
+           WHERE VARIABLE_NAME = 'Innodb_buffer_pool_reads') /
+    (SELECT VARIABLE_VALUE FROM performance_schema.global_status
+     WHERE VARIABLE_NAME = 'Innodb_buffer_pool_read_requests') * 100,
+    2
+  ) AS hit_rate_pct;</code></pre>
+
+<h3>2. innodb_log_file_size</h3>
+<p>Tamaño de los redo logs. Más grande = menos checkpoints y mejor escritura sostenida; más pequeño = recuperación más rápida tras una caída. Es un balance, no un número mágico.</p>
+<pre><code class="language-sql">SELECT @@innodb_log_file_size AS bytes,
+       ROUND(@@innodb_log_file_size / 1024 / 1024, 2) AS mb;</code></pre>
+
+<h3>3. max_connections</h3>
+<p>Subirlo sin memoria disponible solo mueve el problema: cada conexión consume buffers privados. Revisa también <code>thread_cache_size</code> y si la aplicación abre y cierra conexiones sin un pool.</p>
+<pre><code class="language-sql">SELECT @@max_connections AS max_conexiones,
+       @@thread_cache_size AS thread_cache,
+       (SELECT VARIABLE_VALUE FROM performance_schema.global_status
+        WHERE VARIABLE_NAME = 'Threads_connected') AS conectadas_ahora;</code></pre>
+
+<h2 id="consulta">La consulta crítica del proyecto</h2>
+<pre><code class="language-sql">SELECT id_unidad, codigo_barras, tipo_componente, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+  AND grupo_abo = 'O'
+  AND factor_rh = '+'
+ORDER BY fecha_vencimiento ASC;</code></pre>
+<p>Es la consulta del mostrador: «¿qué unidades O+ puedo despachar y cuál vence primero?». Se ejecuta muchas veces al día y debe ser instantánea.</p>
+
+<h2 id="explain">Medir antes</h2>
+<pre><code class="language-sql">EXPLAIN
+SELECT id_unidad, codigo_barras, tipo_componente, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+  AND grupo_abo = 'O'
+  AND factor_rh = '+'
+ORDER BY fecha_vencimiento ASC;</code></pre>
+<p>Si <code>type = ALL</code>, <code>key = NULL</code> o <code>Extra = Using filesort</code>, hay margen de mejora. Anota el plan y el tiempo; sin línea base no puedes demostrar nada.</p>
+
+<h2 id="indice">Crear el índice justificado</h2>
+<pre><code class="language-sql">CREATE INDEX idx_unidades_o_positivo
+  ON unidades_sangre (grupo_abo, factor_rh, estado, fecha_vencimiento);</code></pre>
+<p>El orden sigue la consulta: igualdad (<code>grupo_abo</code>, <code>factor_rh</code>, <code>estado</code>) y después orden (<code>fecha_vencimiento</code>). Así MySQL puede recorrer el índice en el orden pedido y evitar el <em>filesort</em>.</p>
+
+<h2 id="despues">Medir después</h2>
+<pre><code class="language-sql">EXPLAIN
+SELECT id_unidad, codigo_barras, tipo_componente, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+  AND grupo_abo = 'O'
+  AND factor_rh = '+'
+ORDER BY fecha_vencimiento ASC;
+
+-- Plan y tiempo real
+EXPLAIN ANALYZE
+SELECT id_unidad, codigo_barras, tipo_componente, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible'
+  AND grupo_abo = 'O'
+  AND factor_rh = '+'
+ORDER BY fecha_vencimiento ASC;</code></pre>
+
+<h2 id="cronometro">Cronómetro portable</h2>
+<pre><code class="language-sql">-- MySQL 8.0 tiene SHOW PROFILES, pero está deprecado y en 8.4 ya no existe.
+-- Mide con NOW(6) o usa EXPLAIN ANALYZE.
+SET @inicio = NOW(6);
+SELECT COUNT(*) INTO @total
+FROM unidades_sangre
+WHERE estado = 'disponible' AND grupo_abo = 'O' AND factor_rh = '+';
+SET @fin = NOW(6);
+SELECT @total AS filas,
+       TIMESTAMPDIFF(MICROSECOND, @inicio, @fin) / 1000 AS ms;</code></pre>
+
+<h2 id="resultado">Qué esperar</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Métrica</th><th>Antes</th><th>Después</th></tr></thead>
+  <tbody>
+    <tr><td>Acceso</td><td><code>ALL</code></td><td><code>ref</code></td></tr>
+    <tr><td>Índice</td><td><code>NULL</code></td><td><code>idx_unidades_o_positivo</code></td></tr>
+    <tr><td>Filas examinadas</td><td>Toda la tabla</td><td>Solo las O+ disponibles</td></tr>
+    <tr><td>Orden</td><td><code>Using filesort</code></td><td>Sin filesort</td></tr>
+    <tr><td>Tiempo (demo)</td><td>~0.4 ms</td><td>~0.2 ms</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Con 14 filas, el optimizador puede ignorar el índice y hacer table scan de todos modos. La mejora real se demuestra con un volumen representativo o con <code>EXPLAIN ANALYZE</code> mostrando menos filas examinadas.</p>
+
+<div class="callout callout--note">
+  <p class="callout__label">No midas una vez</p>
+  <p>La primera ejecución incluye lectura de disco y calentamiento de caché. Ejecuta varias veces y compara promedios. Y no afines en producción sin una ventana y un plan de reversión.</p>
+</div>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>El script <code>05_unidad5_afinacion.sql</code> mide antes, crea el índice, mide después y documenta los parámetros. Es el entregable de la unidad 5: revisar tres parámetros, justificar un índice con EXPLAIN y comparar el tiempo de una consulta crítica.</p>
+</div>
+
+<h2 id="errores">Errores comunes</h2>
+<ul>
+  <li>Crear índices sin medir y sin revisar el plan.</li>
+  <li>Indexar todas las columnas del <code>WHERE</code> sin importar el orden.</li>
+  <li>Subir <code>max_connections</code> sin memoria.</li>
+  <li>Comparar tiempos con la caché fría contra la caché caliente.</li>
+  <li>Olvidar <code>ANALYZE TABLE</code> después de cambios masivos.</li>
+  <li>Afinar una consulta que casi no se ejecuta mientras la crítica sigue lenta.</li>
+</ul>

@@ -1,0 +1,151 @@
+<h2 id="alcance">El caso y su alcance</h2>
+<p>El proyecto pide diseñar, construir y administrar una base de datos en MySQL que demuestre las habilidades de DBA del semestre. El dominio elegido es un <strong>banco de sangre</strong>: registro de donantes, donaciones, unidades derivadas (glóbulos rojos, plasma, plaquetas), pruebas de laboratorio, solicitudes de hospitales, despachos e inventario con trazabilidad.</p>
+<p>No es una maqueta: los scripts deben ejecutarse, las consultas deben devolver datos coherentes y la demo debe mostrar el ciclo completo.</p>
+
+<div class="callout callout--case">
+  <p class="callout__label">Regla del proyecto</p>
+  <p>Cada unidad del curso deja un artefacto verificable. Si una unidad no tiene script, consulta o evidencia, no está entregada.</p>
+</div>
+
+<h2 id="estructura">Estructura de archivos</h2>
+<pre><code class="language-text">proyecto/
+├── README.md
+└── sql/
+    ├── 00_esquema.sql
+    ├── 01_datos_demo.sql
+    ├── 02_unidad2_espacio_particiones_eventos.sql
+    ├── 03_unidad3_seguridad_monitoreo_auditoria.sql
+    ├── 04_unidad4_respaldo_recuperacion.sql
+    ├── 04_respaldo_incremental.sh
+    └── 05_unidad5_afinacion.sql</code></pre>
+<p>El orden importa: <code>00</code> crea la base, <code>01</code> la llena, y los demás scripts asumen que existe. Si vuelves a ejecutar <code>00</code>, se recrea todo.</p>
+
+<h2 id="unidad1">Unidad 1 · DBA y arquitectura</h2>
+<ul>
+  <li><strong>Motor:</strong> MySQL 8 InnoDB. Transacciones ACID, FKs reales, particiones, roles, eventos y respaldo lógico.</li>
+  <li><strong>Roles del equipo:</strong> System DBA, Arquitecto de datos y DBA de seguridad.</li>
+  <li><strong>Esquema:</strong> 12 tablas relacionadas, una vista, índices y restricciones CHECK.</li>
+  <li><strong>Evidencia:</strong> <code>00_esquema.sql</code>, <code>01_datos_demo.sql</code> y el diagrama del README.</li>
+</ul>
+<pre><code class="language-sql">-- Verificación rápida de la unidad 1
+SELECT table_name, table_type
+FROM information_schema.tables
+WHERE table_schema = 'banco_sangre'
+ORDER BY table_type, table_name;
+
+SELECT COUNT(*) AS tablas
+FROM information_schema.tables
+WHERE table_schema = 'banco_sangre' AND table_type = 'BASE TABLE';</code></pre>
+
+<h2 id="unidad2">Unidad 2 · Espacios y disponibilidad</h2>
+<ul>
+  <li><strong>Estimación:</strong> cinco tablas proyectadas a un año, con índices y margen del 30 %.</li>
+  <li><strong>Fragmentación:</strong> <code>movimientos_inventario</code> por RANGE anual; ejemplos LIST y HASH.</li>
+  <li><strong>Automatización:</strong> cuatro eventos (vencidas, movimientos, Uptime, purga de auditoría).</li>
+  <li><strong>RTO/RPO:</strong> 30 min / 15 min, justificados con el impacto de una caída.</li>
+  <li><strong>Evidencia:</strong> <code>02_unidad2_espacio_particiones_eventos.sql</code>.</li>
+</ul>
+<pre><code class="language-sql">-- Estimación y tamaño real, en la misma pantalla
+SET @filas = 120000;
+SET @bytes = 8 + 4 + 2 + 8 + 80 + 255;
+
+SELECT
+  ROUND(@filas * @bytes / 1024 / 1024, 2) AS datos_mb,
+  ROUND(@filas * @bytes * 1.20 / 1024 / 1024, 2) AS con_indices_mb,
+  ROUND(@filas * @bytes * 1.20 * 1.30 / 1024 / 1024, 2) AS con_margen_mb;
+
+SELECT table_name,
+       ROUND((data_length + index_length) / 1024 / 1024, 2) AS total_mb
+FROM information_schema.tables
+WHERE table_schema = 'banco_sangre'
+ORDER BY (data_length + index_length) DESC;</code></pre>
+
+<h2 id="unidad3">Unidad 3 · Monitoreo y seguridad</h2>
+<ul>
+  <li><strong>Roles:</strong> laboratorio, recepción, auditoría y DBA, con privilegios diferenciados.</li>
+  <li><strong>Monitoreo:</strong> Uptime, conexiones, consultas activas, eventos, espacio y consultas caras.</li>
+  <li><strong>Disponibilidad:</strong> problema elegido (SPOF) y mitigación documentada.</li>
+  <li><strong>Auditoría:</strong> tres triggers sobre <code>unidades_sangre</code> con JSON de antes/después.</li>
+  <li><strong>Evidencia:</strong> <code>03_unidad3_seguridad_monitoreo_auditoria.sql</code>.</li>
+</ul>
+<pre><code class="language-sql">-- Evidencia de auditoría
+SELECT id_auditoria, id_unidad, accion, usuario, fecha,
+       datos_anteriores, datos_nuevos
+FROM auditoria_unidades
+ORDER BY id_auditoria DESC
+LIMIT 5;
+
+-- Quién puede hacer qué
+SHOW GRANTS FOR 'lab_user'@'localhost';
+SHOW GRANTS FOR 'recepcion_user'@'localhost';</code></pre>
+
+<h2 id="unidad4">Unidad 4 · Respaldo y recuperación</h2>
+<ul>
+  <li><strong>Plan:</strong> completo diario + binlog cada 15 min + copia externa cifrada.</li>
+  <li><strong>Simulación:</strong> borrado controlado y restauración paso a paso.</li>
+  <li><strong>Validación:</strong> conteos, huérfanos, triggers/eventos y checksum.</li>
+  <li><strong>Evidencia:</strong> <code>04_unidad4_respaldo_recuperacion.sql</code> y <code>04_respaldo_incremental.sh</code>.</li>
+</ul>
+<pre><code class="language-bash"># Respaldo completo (ejecutar en terminal)
+mysqldump --single-transaction --routines --triggers --events \
+  --databases banco_sangre &gt; /respaldo/banco_sangre_$(date +%Y%m%d).sql
+
+# Restauración
+mysql --user=dba_sangre --password &lt; /respaldo/banco_sangre_20261101.sql</code></pre>
+
+<h2 id="unidad5">Unidad 5 · Afinación</h2>
+<ul>
+  <li><strong>Parámetros:</strong> buffer pool, redo log y max_connections.</li>
+  <li><strong>Índice justificado:</strong> <code>idx_unidades_o_positivo</code> sobre la consulta crítica.</li>
+  <li><strong>Medición:</strong> EXPLAIN y EXPLAIN ANALYZE antes/después, más tiempo.</li>
+  <li><strong>Evidencia:</strong> <code>05_unidad5_afinacion.sql</code>.</li>
+</ul>
+<pre><code class="language-sql">EXPLAIN
+SELECT id_unidad, codigo_barras, fecha_vencimiento
+FROM unidades_sangre
+WHERE estado = 'disponible' AND grupo_abo = 'O' AND factor_rh = '+'
+ORDER BY fecha_vencimiento ASC;
+
+CREATE INDEX idx_unidades_o_positivo
+  ON unidades_sangre (grupo_abo, factor_rh, estado, fecha_vencimiento);</code></pre>
+
+<h2 id="demo">La demo de 15 a 20 minutos</h2>
+<ol>
+  <li><strong>Modelo (2 min):</strong> mostrar el diagrama y explicar por qué donación y unidad son tablas distintas.</li>
+  <li><strong>Ciclo real (3 min):</strong> insertar una donación, derivar dos unidades y mostrar el trigger de auditoría.</li>
+  <li><strong>Espacio (2 min):</strong> ejecutar la proyección y contrastarla con <code>information_schema</code>.</li>
+  <li><strong>Particiones (3 min):</strong> mostrar las particiones de movimientos y un <code>EXPLAIN</code> que solo toca una.</li>
+  <li><strong>Automatización (2 min):</strong> ejecutar el evento de Uptime y revisar la bitácora.</li>
+  <li><strong>Seguridad (2 min):</strong> mostrar roles y un intento denegado.</li>
+  <li><strong>Respaldo (3 min):</strong> restaurar en vivo y verificar conteos.</li>
+  <li><strong>Afinación (3 min):</strong> comparar el plan antes/después del índice.</li>
+</ol>
+
+<div class="callout callout--note">
+  <p class="callout__label">Consejo para la demo</p>
+  <p>No leas scripts en voz alta. Cuenta una historia: «entra una donación, se derivan dos unidades, una se prueba, un hospital la pide, se despacha, se audita y se respalda». El código es la evidencia, no el guion.</p>
+</div>
+
+<h2 id="evaluacion">Cómo se evalúa</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Criterio</th><th>Qué se busca</th></tr></thead>
+  <tbody>
+    <tr><td>Modelo</td><td>Tablas relacionadas, PK/FK, integridad, justificación</td></tr>
+    <tr><td>Unidad 2</td><td>Estimación con índices y margen, partición correcta, evento funcional, RTO/RPO</td></tr>
+    <tr><td>Unidad 3</td><td>Roles diferenciados, monitoreo real, auditoría de operación sensible</td></tr>
+    <tr><td>Unidad 4</td><td>Respaldo completo e incremental, restauración probada y documentada</td></tr>
+    <tr><td>Unidad 5</td><td>Tres parámetros, índice con EXPLAIN antes/después y medición</td></tr>
+    <tr><td>Demo</td><td>Claridad, orden, evidencia y capacidad de responder preguntas</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="siguiente">Qué hacer ahora</h2>
+<pre><code class="language-text">1. Abre MySQL Workbench.
+2. Ejecuta proyecto/sql/00_esquema.sql.
+3. Ejecuta proyecto/sql/01_datos_demo.sql.
+4. Sigue con 02, 03, 04 y 05 en orden.
+5. Lee el README para la justificación de cada decisión.
+6. Prepara la demo con los ocho pasos de arriba.</code></pre>
+<p>Si algo falla, el capítulo <a href="#/capitulo/chuleta">Chuleta y errores comunes</a> tiene las reglas que más se olvidan.</p>

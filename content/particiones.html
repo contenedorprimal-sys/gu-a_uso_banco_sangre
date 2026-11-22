@@ -1,0 +1,127 @@
+<h2 id="fragmentar">Fragmentar no es lo mismo que repartir servidores</h2>
+<p><strong>Fragmentación</strong> es una decisión lógica: cómo dividir una tabla grande en partes manejables. <strong>Sharding</strong> es una decisión física: en qué servidor vive cada parte. MySQL implementa la fragmentación horizontal de forma nativa con <code>PARTITION BY</code>; el sharding requiere arquitectura adicional.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th></th><th>Fragmentación</th><th>Sharding</th></tr></thead>
+  <tbody>
+    <tr><td>Decide</td><td>Cómo dividir lógicamente</td><td>En qué servidor vive cada parte</td></tr>
+    <tr><td>Servidores</td><td>Puede ser uno solo</td><td>Siempre varios</td></tr>
+    <tr><td>Tema</td><td>Modelado de datos</td><td>Arquitectura e infraestructura</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="tipos">Horizontal, vertical y mixta</h2>
+<ul>
+  <li><strong>Horizontal:</strong> divide por filas. Cada fragmento tiene las mismas columnas y un subconjunto de registros (por año, región, estado).</li>
+  <li><strong>Vertical:</strong> divide por columnas. Cada fragmento tiene todas las filas y solo algunas columnas (contacto frecuente vs. historial raro).</li>
+  <li><strong>Mixta:</strong> combina las dos. Más flexible, más difícil de mantener.</li>
+</ul>
+<p>MySQL particiona horizontalmente, no verticalmente. La fragmentación vertical se implementa separando tablas o usando vistas.</p>
+
+<h2 id="range-list-hash">RANGE, LIST y HASH</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tipo</th><th>Divide por</th><th>Ejemplo del proyecto</th></tr></thead>
+  <tbody>
+    <tr><td><code>RANGE</code></td><td>Rangos de valores</td><td>Movimientos por año</td></tr>
+    <tr><td><code>LIST</code></td><td>Lista explícita de valores</td><td>Solicitudes por estado</td></tr>
+    <tr><td><code>HASH</code></td><td>Función hash sobre una columna</td><td>Pruebas repartidas por id_unidad</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="range">RANGE por año: el historial que no deja de crecer</h2>
+<pre><code class="language-sql">CREATE TABLE movimientos_inventario (
+  id_movimiento    BIGINT NOT NULL AUTO_INCREMENT,
+  id_unidad        INT NOT NULL,
+  tipo_movimiento  ENUM('entrada','reserva','liberacion','salida','descarte','vencimiento','ajuste') NOT NULL,
+  fecha_movimiento DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  usuario          VARCHAR(80),
+  motivo           VARCHAR(255),
+  PRIMARY KEY (id_movimiento, fecha_movimiento)
+) ENGINE=InnoDB
+PARTITION BY RANGE (YEAR(fecha_movimiento)) (
+  PARTITION p2024 VALUES LESS THAN (2025),
+  PARTITION p2025 VALUES LESS THAN (2026),
+  PARTITION p2026 VALUES LESS THAN (2027),
+  PARTITION p2027 VALUES LESS THAN (2028),
+  PARTITION pmax  VALUES LESS THAN MAXVALUE
+);</code></pre>
+<p>La columna <code>fecha_movimiento</code> está en la PK. No es capricho: MySQL exige que toda clave única incluya la columna de partición. Y la tabla no tiene FOREIGN KEY, porque las tablas particionadas no las admiten.</p>
+<pre><code class="language-sql">-- Ver el reparto
+SELECT partition_name, table_rows
+FROM information_schema.PARTITIONS
+WHERE table_schema = 'banco_sangre'
+  AND table_name = 'movimientos_inventario'
+ORDER BY partition_ordinal_position;
+
+-- El optimizador solo toca la partición del año
+EXPLAIN
+SELECT COUNT(*) FROM movimientos_inventario
+WHERE fecha_movimiento >= '2026-01-01'
+  AND fecha_movimiento &lt;  '2027-01-01';</code></pre>
+
+<h2 id="list">LIST por categoría</h2>
+<pre><code class="language-sql">CREATE TABLE solicitudes_list (
+  id_solicitud     INT NOT NULL,
+  id_hospital      INT NOT NULL,
+  fecha_solicitud  DATETIME NOT NULL,
+  prioridad        ENUM('urgente','programada') NOT NULL,
+  estado           VARCHAR(10) NOT NULL,
+  PRIMARY KEY (id_solicitud, estado)
+) ENGINE=InnoDB
+PARTITION BY LIST COLUMNS(estado) (
+  PARTITION p_pendiente VALUES IN ('pendiente'),
+  PARTITION p_parcial   VALUES IN ('parcial'),
+  PARTITION p_surtida   VALUES IN ('surtida'),
+  PARTITION p_cancelada VALUES IN ('cancelada')
+);</code></pre>
+<p>Para texto se usa <code>LIST COLUMNS</code>, no <code>LIST</code>. Tampoco acepta <code>ENUM</code>: por eso <code>estado</code> es <code>VARCHAR</code> en esta copia. Si insertas un valor que no está en ninguna partición, el <code>INSERT</code> falla: la partición LIST es cerrada.</p>
+
+<h2 id="hash">HASH para reparto uniforme</h2>
+<pre><code class="language-sql">CREATE TABLE pruebas_hash (
+  id_prueba    INT NOT NULL,
+  id_unidad    INT NOT NULL,
+  tipo_prueba  ENUM('VIH','HBV','HCV','sifilis','chagas','grupo_sanguineo','pruebas_cruzadas') NOT NULL,
+  resultado    ENUM('negativo','positivo','pendiente') NOT NULL,
+  fecha_prueba DATETIME NOT NULL,
+  PRIMARY KEY (id_prueba, id_unidad)
+) ENGINE=InnoDB
+PARTITION BY HASH(id_unidad)
+PARTITIONS 4;</code></pre>
+<p>HASH no tiene criterio de negocio visible: reparte por una función. Sirve para paralelizar y para equilibrar, no para «consultar solo el año 2026».</p>
+
+<h2 id="reglas">Las reglas que cuestan puntos</h2>
+<div class="callout callout--warning">
+  <p class="callout__label">No las olvides</p>
+  <ul>
+    <li>La columna de partición <strong>debe formar parte de la PRIMARY KEY</strong>.</li>
+    <li>Una tabla particionada <strong>no puede tener FOREIGN KEY</strong>.</li>
+    <li>Para <code>VARCHAR</code> usa <code>LIST COLUMNS</code>.</li>
+    <li>Las particiones son parte del diseño: se definen al crear la tabla, no se «activan» después.</li>
+    <li>No particiones por una columna que las consultas no filtran.</li>
+  </ul>
+</div>
+
+<h2 id="cuando">¿Cuándo vale la pena particionar?</h2>
+<ul>
+  <li>La tabla es grande y crece de forma acumulativa (historial, bitácora, movimientos).</li>
+  <li>Las consultas filtran por la columna de partición (fecha, región, estado).</li>
+  <li>Necesitas archivar o borrar un año completo sin tocar el resto: <code>ALTER TABLE ... DROP PARTITION</code> es mucho más barato que un <code>DELETE</code> masivo.</li>
+</ul>
+<p>Si la tabla es pequeña o las consultas no usan el criterio, particionar solo agrega complejidad.</p>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p><code>movimientos_inventario</code> es la tabla que más crece: cada entrada, reserva, salida, descarte y vencimiento deja una fila. Particionarla por año permite consultar «movimientos de 2026» sin leer 2024 ni 2025, y archivar un año completo cuando ya no se necesita en línea.</p>
+</div>
+
+<h2 id="errores">Errores comunes</h2>
+<ul>
+  <li>Particionar una tabla con FK y descubrir el error a la mitad.</li>
+  <li>Usar <code>LIST</code> con texto en vez de <code>LIST COLUMNS</code>.</li>
+  <li>Elegir un criterio que no aparece en los <code>WHERE</code>.</li>
+  <li>Creer que la partición reemplaza un índice: no lo hace.</li>
+  <li>Confundir fragmentación lógica con sharding físico.</li>
+</ul>

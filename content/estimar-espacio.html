@@ -1,0 +1,111 @@
+<h2 id="por-que">Por qué estimar antes de crear</h2>
+<p>Quedarse sin disco en producción es uno de los incidentes más comunes y más evitables. La estimación no es un trámite: decide el hardware, el presupuesto y la estrategia de crecimiento.</p>
+<ul>
+  <li><strong>Evita sorpresas costosas:</strong> un servidor que se llena un viernes a las 3 a.m.</li>
+  <li><strong>Elige el hardware correcto:</strong> no compras el doble «por si acaso» ni la mitad «porque alcanza».</li>
+  <li><strong>Planea finanzas:</strong> el almacenamiento crece y hay que presupuestarlo.</li>
+</ul>
+
+<h2 id="formula">La fórmula de clase</h2>
+<div class="formula">
+  <p><strong>1.</strong> bytes por fila = suma de bytes de cada columna</p>
+  <p><strong>2.</strong> datos = bytes por fila × filas esperadas</p>
+  <p><strong>3.</strong> índices = datos × 0.20 <span>(rango razonable 10 %–30 %)</span></p>
+  <p><strong>4.</strong> crecimiento = (datos + índices) × 1.20 a 1.30</p>
+</div>
+<p>Tamaños de referencia para la estimación conservadora:</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tipo</th><th>Bytes</th><th>Tipo</th><th>Bytes</th></tr></thead>
+  <tbody>
+    <tr><td><code>INT</code></td><td>4</td><td><code>DATE</code></td><td>3</td></tr>
+    <tr><td><code>BIGINT</code></td><td>8</td><td><code>DATETIME</code></td><td>8</td></tr>
+    <tr><td><code>TINYINT</code></td><td>1</td><td><code>YEAR</code></td><td>1</td></tr>
+    <tr><td><code>DECIMAL(p,s)</code></td><td>≈ p/2 + 1</td><td><code>ENUM</code></td><td>1 o 2</td></tr>
+    <tr><td><code>VARCHAR(n)</code></td><td>n (peor caso)</td><td><code>JSON</code></td><td>variable</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="ejemplo">Ejemplo resuelto: donantes</h2>
+<p>Tabla <code>donantes</code> con 8,000 filas nuevas al año:</p>
+<pre><code class="language-text">nombre            VARCHAR(60)    60
+apellido_paterno  VARCHAR(60)    60
+apellido_materno  VARCHAR(60)    60
+fecha_nacimiento  DATE            3
+sexo              ENUM            1
+tipo_sangre       ENUM            1
+factor_rh         ENUM            1
+telefono          VARCHAR(20)    20
+correo            VARCHAR(120)  120
+direccion         VARCHAR(160)  160
+fecha_registro    DATETIME        8
+activo            TINYINT         1
+                                ----
+bytes por fila                 495
+
+datos       = 495 × 8,000        = 3,960,000 bytes  (~3.78 MB)
+índices 20% = 3,960,000 × 0.20   =   792,000 bytes
+subtotal                        = 4,752,000 bytes
+margen 30%  = 4,752,000 × 1.30   = 6,177,600 bytes  (~5.89 MB)</code></pre>
+<p>La cifra parece pequeña porque la tabla es pequeña. El problema aparece en <code>movimientos_inventario</code>: 120,000 filas al año con textos de 80 y 255 bytes.</p>
+
+<h2 id="proyecto">Estimación del proyecto completo</h2>
+<p>El script <code>02_unidad2_espacio_particiones_eventos.sql</code> calcula cinco tablas con variables. Puedes cambiar los supuestos sin reescribir la fórmula:</p>
+<pre><code class="language-sql">SET @filas_movimientos = 120000;
+SET @bytes_movimientos = 8 + 4 + 2 + 8 + 80 + 255;
+
+SELECT
+  @filas_movimientos AS filas,
+  @bytes_movimientos AS bytes_fila,
+  ROUND(@filas_movimientos * @bytes_movimientos / 1024 / 1024, 2) AS datos_mb,
+  ROUND(@filas_movimientos * @bytes_movimientos * 1.20 / 1024 / 1024, 2) AS con_indices_mb,
+  ROUND(@filas_movimientos * @bytes_movimientos * 1.20 * 1.30 / 1024 / 1024, 2) AS con_margen_mb;</code></pre>
+<p>Resultado aproximado: 40 MB de datos, 48 MB con índices y 62 MB con margen para un año. Con diez años de historial, la tabla de movimientos pasa de 400 MB solo en datos. Ahí es donde tiene sentido particionar y archivar.</p>
+
+<div class="callout callout--note">
+  <p class="callout__label">No estimes solo lo actual</p>
+  <p>El error más común es calcular con las filas de hoy. Un sistema que crece 5 % semanal duplica su tamaño en pocos meses. Usa históricos o proyecciones y revisa la estimación cada trimestre.</p>
+</div>
+
+<h2 id="information-schema">La verdad del servidor: information_schema</h2>
+<p>La estimación es una hipótesis; <code>information_schema.TABLES</code> es la medición. Esta consulta es la que más se repite en el examen y en el trabajo diario:</p>
+<pre><code class="language-sql">SELECT
+  table_name AS tabla,
+  table_rows AS filas_estimadas,
+  ROUND(data_length / 1024 / 1024, 3)  AS datos_mb,
+  ROUND(index_length / 1024 / 1024, 3) AS indices_mb,
+  ROUND((data_length + index_length) / 1024 / 1024, 3) AS total_mb,
+  ROUND(index_length / NULLIF(data_length + index_length, 0) * 100, 2) AS pct_indices
+FROM information_schema.TABLES
+WHERE table_schema = 'banco_sangre'
+  AND table_type = 'BASE TABLE'
+ORDER BY (data_length + index_length) DESC;</code></pre>
+<p>Ojo: <code>table_rows</code> es una estimación del motor, no un <code>COUNT(*)</code>. Para el tamaño exacto de una tabla usa <code>COUNT(*)</code>; para el espacio, esta vista es la referencia.</p>
+
+<h2 id="crecimiento">Crecimiento y umbrales</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tipo de aplicación</th><th>Patrón</th><th>Ejemplo</th></tr></thead>
+  <tbody>
+    <tr><td>Transaccional de alto volumen</td><td>Rápido y constante</td><td>Punto de venta</td></tr>
+    <tr><td>Catálogo</td><td>Lento y predecible</td><td>Productos de una tienda</td></tr>
+    <tr><td>Histórico / auditoría</td><td>Acumulativo, nunca decrece</td><td>Movimientos, bitácoras</td></tr>
+    <tr><td>Sesión temporal</td><td>Cíclico: crece y se limpia</td><td>Carritos, tokens</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Define alertas, por ejemplo al 80 % de disco. Y mira la tendencia: un disco al 60 % que crece 5 % por semana es más urgente que uno al 75 % estable.</p>
+
+<h2 id="logico-fisico">De la estimación a las estructuras</h2>
+<p>La jerarquía lógica clásica es <strong>tablespace → segmento → extensión → bloque</strong>. Los segmentos pueden ser de datos, de índice, temporales o de undo. Físicamente viven en archivos de datos, de control y de redo log.</p>
+<ul>
+  <li><strong>Autoextend:</strong> deja que el archivo crezca solo. Cómodo, pero sin límite puede llenar el disco.</li>
+  <li><strong>Separar datos y logs:</strong> en discos distintos reduce contención de E/S.</li>
+  <li><strong>Separar tablas muy usadas:</strong> reparte la carga, aunque en SSD el beneficio es menor.</li>
+</ul>
+
+<div class="callout callout--case">
+  <p class="callout__label">Entregable de la unidad 2</p>
+  <p>Estimar el espacio a un año para al menos tres tablas, incluir índices y margen, y verificar la estimación con <code>information_schema</code>. El proyecto lo hace para cinco tablas y lo documenta en el README.</p>
+</div>

@@ -1,0 +1,132 @@
+<h2 id="formulas">Fórmulas que hay que memorizar</h2>
+<div class="formula">
+  <p><strong>Tamaño de fila</strong> = suma de bytes de cada columna</p>
+  <p><strong>Datos</strong> = tamaño de fila × número de filas</p>
+  <p><strong>Índices</strong> = +10 % a +30 % (en clase se usa 20 %)</p>
+  <p><strong>Crecimiento</strong> = × 1.20 a × 1.30</p>
+  <p><strong>Disponibilidad</strong> = (minutos totales − caída) / minutos totales × 100</p>
+  <p><strong>Año</strong> = 525,600 minutos</p>
+  <p><strong>Quorum</strong> = nodos disponibles &gt; total / 2</p>
+</div>
+
+<h2 id="nueves">Tabla de nueves</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Disponibilidad</th><th>Caída al año</th><th>Caída al mes</th></tr></thead>
+  <tbody>
+    <tr><td>99 %</td><td>~3.65 días</td><td>~7.3 horas</td></tr>
+    <tr><td>99.9 %</td><td>~8.77 horas</td><td>~43.8 minutos</td></tr>
+    <tr><td>99.99 %</td><td>~52.6 minutos</td><td>~4.4 minutos</td></tr>
+    <tr><td>99.999 %</td><td>~5.26 minutos</td><td>~26.3 segundos</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="tamanos">Tamaños de referencia</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tipo</th><th>Bytes</th><th>Tipo</th><th>Bytes</th></tr></thead>
+  <tbody>
+    <tr><td><code>INT</code></td><td>4</td><td><code>DATE</code></td><td>3</td></tr>
+    <tr><td><code>BIGINT</code></td><td>8</td><td><code>DATETIME</code></td><td>8</td></tr>
+    <tr><td><code>TINYINT</code></td><td>1</td><td><code>YEAR</code></td><td>1</td></tr>
+    <tr><td><code>DECIMAL(p,s)</code></td><td>≈ p/2 + 1</td><td><code>ENUM</code></td><td>1 o 2</td></tr>
+    <tr><td><code>VARCHAR(n)</code></td><td>n (peor caso)</td><td><code>JSON</code></td><td>variable</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="comandos">Comandos esenciales</h2>
+<pre><code class="language-sql">-- Espacio real por tabla
+SELECT table_name,
+  ROUND((data_length + index_length)/1024/1024, 2) AS total_mb,
+  ROUND(index_length/NULLIF(data_length+index_length,0)*100, 2) AS pct_indices
+FROM information_schema.TABLES
+WHERE table_schema = 'banco_sangre';
+
+-- Tamaño por base
+SELECT table_schema,
+  ROUND(SUM(data_length + index_length)/1024/1024, 2) AS total_mb
+FROM information_schema.TABLES
+GROUP BY table_schema;
+
+-- Particiones de una tabla
+SELECT partition_name, table_rows
+FROM information_schema.PARTITIONS
+WHERE table_schema = 'banco_sangre' AND table_name = 'movimientos_inventario';
+
+-- Uptime
+SELECT VARIABLE_VALUE FROM performance_schema.global_status
+WHERE VARIABLE_NAME = 'Uptime';
+
+-- Eventos
+SHOW EVENTS FROM banco_sangre;
+
+-- Privilegios
+SHOW GRANTS FOR 'lab_user'@'localhost';</code></pre>
+
+<h2 id="reglas">Reglas que cuestan puntos</h2>
+<div class="callout callout--warning">
+  <p class="callout__label">Particiones</p>
+  <ul>
+    <li>La columna de partición <strong>debe ser parte de la PRIMARY KEY</strong>.</li>
+    <li>Una tabla particionada <strong>no puede tener FOREIGN KEY</strong>.</li>
+    <li>Para <code>VARCHAR</code> usa <code>LIST COLUMNS</code>.</li>
+    <li><code>RANGE</code> para fechas; <code>LIST</code> para categorías; <code>HASH</code> para reparto uniforme.</li>
+    <li>Un <code>INSERT</code> con un valor fuera de las particiones LIST falla.</li>
+  </ul>
+</div>
+<div class="callout callout--warning">
+  <p class="callout__label">Eventos y clúster</p>
+  <ul>
+    <li>Primero <code>SET GLOBAL event_scheduler = ON;</code> y verifica con <code>SHOW VARIABLES</code>.</li>
+    <li>Quorum = más de la mitad; usa número impar de nodos.</li>
+    <li>Sin quorum no hay escrituras (anti split-brain).</li>
+    <li>Failover: detección → elección (menor <code>server_uuid</code>) → redirección → recuperación.</li>
+    <li>Una transacción sin <code>COMMIT</code> no se replica y no continúa en otro nodo.</li>
+  </ul>
+</div>
+<div class="callout callout--warning">
+  <p class="callout__label">Respaldos y afinación</p>
+  <ul>
+    <li><code>mysqldump --single-transaction</code> para InnoDB sin bloquear.</li>
+    <li>Incluye <code>--routines --triggers --events</code>.</li>
+    <li>El binlog permite recuperación punto en el tiempo.</li>
+    <li>Un índice compuesto se ordena: igualdad → rango → orden.</li>
+    <li>Mide con <code>EXPLAIN</code> antes y después; sin línea base no hay evidencia.</li>
+  </ul>
+</div>
+
+<h2 id="errores">Errores comunes</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Error</th><th>Consecuencia</th><th>Corrección</th></tr></thead>
+  <tbody>
+    <tr><td>Estimar solo con los datos actuales</td><td>Quedarse sin disco antes de lo previsto</td><td>Proyección + margen 20–30 %</td></tr>
+    <tr><td>Olvidar los índices en la estimación</td><td>Subestimar el espacio</td><td>Sumar 10–30 %</td></tr>
+    <tr><td>Particionar por una columna que no se filtra</td><td>Sin mejora y más complejidad</td><td>Elegir el criterio de los WHERE reales</td></tr>
+    <tr><td>Crear el evento sin encender el scheduler</td><td>El evento nunca corre</td><td><code>SET GLOBAL event_scheduler = ON</code></td></tr>
+    <tr><td>Dar <code>ALL PRIVILEGES</code></td><td>Un error se vuelve catastrófico</td><td>Mínimo privilegio + roles</td></tr>
+    <tr><td>No probar la restauración</td><td>RTO real desconocido</td><td>Simulacro trimestral</td></tr>
+    <tr><td>Indexar todo</td><td>Escrituras lentas</td><td>Índices justificados con EXPLAIN</td></tr>
+    <tr><td>Confundir fragmentación con sharding</td><td>Decisiones de arquitectura equivocadas</td><td>Lógico vs. físico</td></tr>
+    <tr><td>Usar <code>= NULL</code></td><td>Nunca coincide</td><td><code>IS NULL</code></td></tr>
+    <tr><td>Un <code>UPDATE</code> sin <code>WHERE</code></td><td>Se actualiza toda la tabla</td><td>Verificar con <code>SELECT COUNT(*)</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="examen">Mini examen de 10 retos</h2>
+<ol>
+  <li>Calcula 238 bytes × 80,000 filas y agrégale 30 % de margen.</li>
+  <li>Escribe la consulta que da el porcentaje de índices de una tabla.</li>
+  <li>Crea una tabla particionada por HASH en 4 partes sobre <code>id_usuario</code>.</li>
+  <li>Crea una tabla particionada por LIST sobre <code>metodo_envio</code>.</li>
+  <li>Calcula la disponibilidad de 4 h 30 min caídas en un año.</li>
+  <li>Define RTO y RPO para un e-commerce que cae a las 3 p.m. con respaldo de la 1 a.m.</li>
+  <li>Con 5 nodos y 2 activos, ¿hay quorum? Escríbelo con variables.</li>
+  <li>Explica qué pasa con una transacción sin COMMIT si cae el PRIMARY.</li>
+  <li>Crea un evento que inserte Uptime cada hora.</li>
+  <li>Justifica un índice compuesto para una consulta con igualdad y orden.</li>
+</ol>
+<p>Si resuelves nueve de diez sin mirar, estás listo para el examen práctico de la unidad 2. Las respuestas están repartidas en los capítulos 14 a 23 y en los scripts del proyecto.</p>

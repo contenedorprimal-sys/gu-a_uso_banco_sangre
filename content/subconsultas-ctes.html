@@ -1,0 +1,187 @@
+<h2 id="idea">Una pregunta dentro de otra</h2>
+<p>Una subconsulta es un <code>SELECT</code> que alimenta a otro. Sirve para comparar contra un conjunto, comprobar si existe algo o construir una tabla intermedia. La clave no es anidar por deporte: es dividir una pregunta grande en preguntas que sí sabes responder.</p>
+<pre><code class="language-sql">-- Unidades que no tienen prueba de VIH registrada
+SELECT u.id_unidad, u.codigo_barras
+FROM unidades_sangre u
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM pruebas_laboratorio p
+  WHERE p.id_unidad = u.id_unidad
+    AND p.tipo_prueba = 'VIH'
+);</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_unidad</th><th>codigo_barras</th></tr></thead>
+  <tbody><tr><td>8</td><td>CR-2026-0001</td></tr><tr><td>7</td><td>GR-2026-0004</td></tr><tr><td>11</td><td>GR-2026-0006</td></tr><tr><td>6</td><td>PL-2026-0002</td></tr><tr><td>10</td><td>PL-2026-0003</td></tr><tr><td>14</td><td>PL-2026-0004</td></tr><tr><td>4</td><td>PQ-2026-0001</td></tr><tr><td>12</td><td>PQ-2026-0002</td></tr><tr><td>13</td><td>ST-2026-0001</td></tr></tbody>
+</table>
+</div>
+
+<p><code>EXISTS</code> no devuelve datos: devuelve verdadero o falso. El <code>SELECT 1</code> es una convención; lo importante es que la subconsulta pueda encontrar al menos una fila.</p>
+
+<h2 id="tipos">Cuatro formas de subconsulta</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Tipo</th><th>Dónde aparece</th><th>Qué devuelve</th><th>Ejemplo de uso</th></tr></thead>
+  <tbody>
+    <tr><td>Escalar</td><td><code>SELECT</code> o <code>WHERE</code></td><td>Una fila, una columna</td><td>Comparar con el promedio</td></tr>
+    <tr><td>Columna</td><td><code>WHERE ... IN</code></td><td>N filas, una columna</td><td>Filtrar por una lista calculada</td></tr>
+    <tr><td>Tabla derivada</td><td><code>FROM ( ... ) AS t</code></td><td>N filas, M columnas</td><td>Agregar y luego filtrar</td></tr>
+    <tr><td><code>EXISTS</code></td><td><code>WHERE</code></td><td>Booleano</td><td>«¿Tiene al menos una prueba?»</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="escalar">Escalar: un solo valor</h2>
+<pre><code class="language-sql">-- Unidades con volumen superior al promedio
+SELECT codigo_barras, volumen_ml
+FROM unidades_sangre
+WHERE volumen_ml &gt; (
+  SELECT AVG(volumen_ml)
+  FROM unidades_sangre
+)
+ORDER BY volumen_ml DESC;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>codigo_barras</th><th>volumen_ml</th></tr></thead>
+  <tbody><tr><td>ST-2026-0001</td><td>450</td></tr><tr><td>GR-2026-0002</td><td>300</td></tr><tr><td>GR-2026-0004</td><td>290</td></tr><tr><td>GR-2026-0005</td><td>285</td></tr><tr><td>GR-2026-0001</td><td>280</td></tr><tr><td>GR-2026-0006</td><td>275</td></tr><tr><td>GR-2026-0003</td><td>270</td></tr></tbody>
+</table>
+</div>
+
+<p>La subconsulta escalar debe devolver exactamente una fila y una columna. Si devuelve dos filas, MySQL lanza un error; si devuelve cero, el resultado es <code>NULL</code> y la comparación no selecciona nada.</p>
+
+<h2 id="in">IN y NOT IN: listas calculadas</h2>
+<pre><code class="language-sql">-- Hospitales que tienen solicitudes pendientes
+SELECT id_hospital, nombre
+FROM hospitales
+WHERE id_hospital IN (
+  SELECT id_hospital
+  FROM solicitudes
+  WHERE estado = 'pendiente'
+);</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>id_hospital</th><th>nombre</th></tr></thead>
+  <tbody><tr><td>2</td><td>Hospital Ángeles</td></tr><tr><td>3</td><td>Clínica del Valle</td></tr></tbody>
+</table>
+</div>
+
+<div class="callout callout--warning">
+  <p class="callout__label">La trampa de NOT IN con NULL</p>
+  <p>Si la subconsulta devuelve un <code>NULL</code>, <code>NOT IN</code> puede no devolver ninguna fila, porque <code>x &lt;&gt; NULL</code> es <code>NULL</code>, no verdadero. Usa <code>NOT EXISTS</code> o añade <code>WHERE columna IS NOT NULL</code> dentro de la subconsulta.</p>
+</div>
+
+<h2 id="cte">CTE: ponerle nombre a un paso</h2>
+<p>Una <em>Common Table Expression</em> empieza con <code>WITH</code>. Es una consulta con nombre que vive durante la consulta principal. No crea una tabla permanente.</p>
+<pre><code class="language-sql">WITH unidades_por_componente AS (
+  SELECT
+    tipo_componente,
+    COUNT(*) AS unidades,
+    SUM(volumen_ml) AS volumen_total
+  FROM unidades_sangre
+  WHERE estado = 'disponible'
+  GROUP BY tipo_componente
+)
+SELECT tipo_componente, unidades, volumen_total
+FROM unidades_por_componente
+WHERE unidades &gt; 0
+ORDER BY volumen_total DESC;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>tipo_componente</th><th>unidades</th><th>volumen_total</th></tr></thead>
+  <tbody><tr><td>plasma</td><td>3</td><td>650</td></tr><tr><td>sangre_total</td><td>1</td><td>450</td></tr><tr><td>globulos_rojos</td><td>1</td><td>270</td></tr><tr><td>crioprecipitado</td><td>1</td><td>60</td></tr></tbody>
+</table>
+</div>
+
+<p>La ventaja aparece cuando necesitas reutilizar el mismo resultado o cuando la consulta tiene varios pasos. Una CTE no acelera por sí sola: es una forma de escribir, no un índice.</p>
+
+<h2 id="multiples">Varias CTEs: un pipeline legible</h2>
+<pre><code class="language-sql">WITH
+compras AS (
+  SELECT id_hospital, COUNT(*) AS solicitudes
+  FROM solicitudes
+  WHERE estado IN ('pendiente', 'parcial')
+  GROUP BY id_hospital
+),
+ultimo_despacho AS (
+  SELECT id_solicitud, MAX(fecha_despacho) AS fecha
+  FROM despachos
+  GROUP BY id_solicitud
+)
+SELECT
+  h.nombre,
+  c.solicitudes,
+  COUNT(d.id_despacho) AS despachos,
+  MAX(ud.fecha) AS ultimo_despacho
+FROM hospitales h
+JOIN compras c ON c.id_hospital = h.id_hospital
+LEFT JOIN solicitudes s ON s.id_hospital = h.id_hospital
+LEFT JOIN despachos d ON d.id_solicitud = s.id_solicitud
+LEFT JOIN ultimo_despacho ud ON ud.id_solicitud = s.id_solicitud
+GROUP BY h.id_hospital, h.nombre, c.solicitudes
+ORDER BY c.solicitudes DESC;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>nombre</th><th>solicitudes</th><th>despachos</th><th>ultimo_despacho</th></tr></thead>
+  <tbody><tr><td>Hospital Ángeles</td><td>1</td><td>1</td><td>2026-08-11 12:00:00</td></tr><tr><td>Clínica del Valle</td><td>1</td><td>1</td><td>2026-10-16 10:00:00</td></tr><tr><td>Hospital General de Zona</td><td>1</td><td>2</td><td>2026-10-03 08:10:00</td></tr></tbody>
+</table>
+</div>
+
+<p>Separa cada CTE con coma y no repitas <code>WITH</code>. Lee de arriba abajo: cada bloque debería poder explicarse en una frase.</p>
+
+<h2 id="recursiva">CTE recursiva: generar una secuencia</h2>
+<pre><code class="language-sql">-- Un calendario de diez días para un reporte diario
+WITH RECURSIVE calendario(fecha) AS (
+  SELECT DATE('2026-10-01')
+  UNION ALL
+  SELECT DATE_ADD(fecha, INTERVAL 1 DAY)
+  FROM calendario
+  WHERE fecha &lt; '2026-10-10'
+)
+SELECT c.fecha, COUNT(d.id_despacho) AS despachos
+FROM calendario c
+LEFT JOIN despachos d
+  ON DATE(d.fecha_despacho) = c.fecha
+GROUP BY c.fecha
+ORDER BY c.fecha;</code></pre>
+<p class="result-label">Salida completa</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>fecha</th><th>despachos</th></tr></thead>
+  <tbody><tr><td>2026-10-01</td><td>0</td></tr><tr><td>2026-10-02</td><td>0</td></tr><tr><td>2026-10-03</td><td>1</td></tr><tr><td>2026-10-04</td><td>0</td></tr><tr><td>2026-10-05</td><td>0</td></tr><tr><td>2026-10-06</td><td>0</td></tr><tr><td>2026-10-07</td><td>0</td></tr><tr><td>2026-10-08</td><td>0</td></tr><tr><td>2026-10-09</td><td>0</td></tr><tr><td>2026-10-10</td><td>0</td></tr></tbody>
+</table>
+</div>
+
+<p>La parte no recursiva crea la primera fila; la recursiva se repite hasta que la condición deja de cumplirse. Sin un límite, una CTE recursiva puede consumir todos los recursos. MySQL corta por <code>cte_max_recursion_depth</code>.</p>
+
+<div class="callout callout--case">
+  <p class="callout__label">Caso banco de sangre</p>
+  <p>La trazabilidad de una unidad se lee mejor como pipeline: donación → unidad → pruebas → despacho → hospital. Una CTE por etapa permite revisar cada paso por separado y detectar en cuál falta información.</p>
+</div>
+
+<h2 id="practica">Práctica</h2>
+<pre><code class="language-sql">-- 1. Donantes que nunca han donado
+SELECT d.id_donante, d.nombre, d.apellido_paterno
+FROM donantes d
+WHERE NOT EXISTS (
+  SELECT 1 FROM donaciones do WHERE do.id_donante = d.id_donante
+);
+
+-- 2. Unidades con resultado positivo en alguna prueba
+SELECT u.codigo_barras, p.tipo_prueba, p.resultado
+FROM unidades_sangre u
+JOIN pruebas_laboratorio p ON p.id_unidad = u.id_unidad
+WHERE p.resultado = 'positivo';
+
+-- 3. Top de componentes por volumen disponible, con CTE
+WITH volumen AS (
+  SELECT tipo_componente, SUM(volumen_ml) AS ml
+  FROM unidades_sangre
+  WHERE estado = 'disponible'
+  GROUP BY tipo_componente
+)
+SELECT * FROM volumen ORDER BY ml DESC;</code></pre>
